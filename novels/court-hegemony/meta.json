@@ -1,0 +1,19 @@
+{
+  "title": "龙庭弈局",
+  "source": "sources/wsnz-gd",
+  "genre": "穿越朝堂争霸",
+  "style": "library/styles/passionate-humorous.md",
+  "world": "自建古代朝堂（大靖）",
+  "mode": "short",
+  "status": "complete",
+  "target_words": 50000,
+  "budget_words": 47500,
+  "source_words": 204511,
+  "compression_ratio": 4.31,
+  "current_chapter": 34,
+  "total_chapters": 34,
+  "last_review_chapter": 0,
+  "last_compress_chapter": 34,
+  "created_at": "2026-03-21",
+  "updated_at": "2026-03-21"
+}
