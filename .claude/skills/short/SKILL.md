@@ -10,10 +10,24 @@ user_invocable: true
 
 1. **全程自动，无人参与** — 所有阶段自动流转，不等待用户输入
 2. **目标字数硬下限 45000 字** — 生成的压缩映射表总字数必须 ≥ 45000
-3. **字数统计统一口径** — 所有涉及"字数"的统计（目标字数、单章字数、总字数等）均遵循 CLAUDE.md "字数统计规范"（去空格、去 Markdown 标记后的字符数，含标点）
+3. **字数统计统一口径** — 所有涉及"字数"的统计均遵循 CLAUDE.md "字数统计规范"
 4. **保持原书逻辑和关系** — 压缩的是描写、过渡、灌水，不是情节因果链
 5. **新实体自动处理** — 遇到未映射的角色/设定，自动生成映射并在检查点汇报
 6. **写作阶段默认持续自动** — 检查点只汇报不暂停
+7. **事实锁定优先** — 所有具体数字、物理细节、角色身份阶段以 `config/details-lock.md` 为唯一真相源。Agent 不得编造锁定表中未列的具体数字/物理细节，需要新数字时使用模糊措辞。
+8. **角色定义** — 本 Skill 中"协调进程"= 执行 /short auto 的主 Agent。"写作 Agent"和"提取 Agent"都是由主 Agent 通过 subagent 调用的子任务，不是独立服务。
+
+## 优先级冲突规则
+
+当信息源冲突时，按此优先级裁决：
+```
+details-lock.md（事实锁定表）
+  > 已修复章节正文（经审校确认的正文）
+    > event-ledger.md（由正文投影生成，是正文的派生物）
+      > 未修复章节正文
+        > 原作内容
+          > Agent 自行编造（最低优先级）
+```
 
 ## 子命令路由
 
@@ -31,7 +45,7 @@ user_invocable: true
 | `/short compress` | Phase 6 |
 | `/short verify` | Phase 7 |
 | `/short fix` | Phase 8 |
-| `/short auto` | 全自动流水线 1→2→3→4（含5/6自动触发）→7→8 |
+| `/short auto` | 全自动流水线 1→2→3→4（含5/6自动触发）→7→7.5→8 |
 
 **自动检测算法**（无子命令时）：
 ```
@@ -41,6 +55,7 @@ user_invocable: true
    a. 存在 status="writing" 且 mode="short" → 恢复写作（Phase 4）
    a2. 存在 status="written" 且 mode="short" → 自动进入 Phase 7（终验）
    b. 存在 status="verifying"|"fixing" 且 mode="short" → 继续校验/修复
+   b2. 存在 status="cross-reviewing" 且 mode="short" → 继续交叉审查（Phase 7.5）
    c. 存在 status="planning" 且 mode="short" → 继续压缩规划（Phase 2）
    d. 存在 status="configuring" 且 mode="short" → 继续配置（Phase 3）
    e. 存在 status="analyzed"|"ready" 的 source 但无对应 short novel：
@@ -68,9 +83,14 @@ user_invocable: true
 | ... | analyzing/analyzed | N | XXXXX |
 
 📖 短篇改编（novels/，mode=short）
-| 名称 | 进度 | 状态 | 目标字数 | 压缩比 |
-|------|------|------|---------|--------|
-| ... | current/total (%) | writing/... | 50000 | 2.0x |
+| 名称 | 进度 | 状态 | 目标字数 | 压缩比 | Gemini 质量 |
+|------|------|------|---------|--------|------------|
+| ... | current/total (%) | writing/... | 50000 | 2.0x | avg:{score} low:{N} esc:{N} |
+
+Gemini 质量列说明（仅 meta.json 含 chapters 数据时显示）：
+  avg = 平均 review_score（null 按 0 计入）
+  low = low_quality=true 的章节数
+  esc = failed_escalated=true 的章节数（有则标红 [ESCALATED]）
 
 📦 素材库（library/）
 原型 {N} | 世界观 {N} | 风格 {N} | 桥段 {N}
@@ -78,7 +98,7 @@ user_invocable: true
 请选择操作：
 1. 分析新原作（Phase 1）
 2. 压缩规划（Phase 2）
-3. 全自动流水线（Phase 1→2→3→4→7→8）
+3. 全自动流水线（Phase 1→2→3→4→7→7.5→8）
 ```
 
 ---
@@ -118,6 +138,24 @@ user_invocable: true
 
 ---
 
+## 差异化字数预算规则（Phase 2 compression-map 生成时应用）
+
+compression-map 中每章的目标字数应按叙事功能差异化分配，不应统一。Phase 2 生成 compression-map 时，为每章标注叙事功能标签并据此分配字数：
+
+| 叙事功能 | 目标字数范围 | 适用场景 |
+|---------|------------|---------|
+| 开篇引入 | 2000-2500 | 第1章，需建立世界观+人物+钩子 |
+| 核心转折/高潮 | 1800-2200 | plot-skeleton 标记的高潮/转折章 |
+| 终章 | 1500-2000 | 最后1-2章 |
+| 角色弧重点章 | 1500-1800 | 配角独立弧核心章 |
+| 常规推进 | 1300-1600 | 标准主线章 |
+| 过渡/信息章 | 1200-1400 | 铺垫/转场章 |
+
+**总和约束**：分配完成后必须验证 SUM(各章目标字数) ∈ [45000, 50000]。
+IF 总和 < 45000 → 上调"常规推进"章节字数；IF 总和 > 50000 → 下调"过渡/信息章"字数。
+
+---
+
 ## Phase 2：骨架提取 + 压缩规划（核心阶段）
 
 **进入时**：如果 novels/{name}/ 目录已存在（中断恢复场景），跳过目录创建；否则创建 novels/{name}/ 并写入 meta.json（`status: "planning"`, `mode: "short"`）使恢复分支可达。
@@ -144,7 +182,27 @@ IF source meta.json.word_count <= 50000:
 
 1. 读取 source 的 analysis.md 和 plot-skeleton.md
 2. 自动选择世界观模板（基于原作题材匹配 `library/worlds/` 中最合适的）
+   - **热门优先匹配**：如原作题材可映射到多个世界观，优先选择热门世界观
+   - 热门世界观优先级（基于百度平台 Top 50 数据）：
+     - eastern-xuanhuan.md — 玄幻/异界/大陆流原作优先匹配
+     - urban-life.md — 都市/神医/退伍原作优先匹配
+     - urban-rich.md — 言情/豪门/婚姻原作优先匹配
+     - cultivation.md — 仙侠/修仙原作优先匹配
+     - historical-fiction.md — 历史/朝堂/宫斗原作优先匹配
+     - rebirth-era.md — 年代文/种田原作优先匹配
 3. 自动选择语言风格（基于原作风格匹配 `library/styles/` 中最合适的）
+   - **基于已选世界观推荐**：根据世界观→风格映射表，自动选择第一推荐风格
+   - 世界观→风格推荐映射：
+     - eastern-xuanhuan → passionate / passionate-humorous
+     - cultivation → cold-hard / passionate
+     - urban-life → humorous / passionate-humorous
+     - urban-rich → sweet-romance / cold-hard
+     - historical-fiction → cold-hard / sweet-romance
+     - rebirth-era → sweet-romance / humorous
+     - urban-mystic → mystic-sweet
+     - urban-power → passionate / cold-hard
+     - campus → sweet-romance / humorous
+     - star-interstellar → sweet-romance
 4. 自动生成书名（生成5个候选，选第1个）
 5. **角色映射** — 基于 plot-skeleton.md 的角色保留清单：
    - 保留角色：自动生成新名字、性格、说话方式
@@ -157,13 +215,31 @@ IF source meta.json.word_count <= 50000:
      - 终验时映射泄漏扫描同时读取龙套列表
 6. **设定映射表** — 基于原作分析 + 选定世界观自动生成
 7. **伏笔追踪表** — 基于 plot-skeleton.md 的伏笔链，用**新作章号**填入
-8. **配置一致性校验**（必执行，门禁——不通过不允许进入 Phase 4）：
+8. **输出改造方向建议**：配置完成后，输出一行改造方向提示
+   - 格式："改造方向：{世界观名} · {流派标签} [{HOT/非热门}]"
+   - 示例："改造方向：东方玄幻 · 废柴逆袭 [HOT Top50 占比28%]"
+   - 示例："改造方向：都市玄学 · 驱邪甜宠 [非热门]"
+9. **创建事实锁定表** `config/details-lock.md`：
+   - 从 character-map、setting-map、plot-skeleton、compression-map 提取所有具体数字/物理细节
+   - 填充6个区块：人物物理细节、场景/地点参数、数字/比例、身世统一版本、角色身份阶段表、关键道具归属表
+   - 每个锁定值附"搜索关键词列表"（供方案D Grep扫描用）
+   - 模板见 [references/details-lock-template.md](references/details-lock-template.md)
+10. **扩展伏笔追踪表** `config/foreshadowing.md`：
+    - 新增"角色设定承诺"区块（从 character-map 提取设定承诺，如"季阳暗投季野"，标注预计落实章）
+    - 新增"道具归属承诺"区块（从 details-lock 道具归属表提取，标注需交代内容的道具）
+11. **配置一致性校验**（必执行，门禁——不通过不允许进入 Phase 4）：
+    - 扫描范围扩展到 details-lock.md（检查锁定值与其他配置文件无矛盾）
    - 从 setting-map.md 和 character-map.md 提取所有原作名词（左列）作为扫描词表
    - 扫描 plot-skeleton.md 全文 + compression-map.md 中所有非"对应原作章"列的文本
    - 不扫描：character-map/setting-map 的左列（映射查找用），不修改事件 ID 编号
    - 发现原作名词 → 以映射表右列为准替换，替换后重新扫描确认零残留
    - 输出："配置一致性校验通过，共扫描 N 个原作词，修正 H 处"
    - IF 仍有残留 → 阻断，输出残留清单（文件+行号），status 保持 "configuring"
+   - **配置文件交叉一致性校验**（步骤11追加，同为门禁）：
+     - details-lock ↔ character-map：核对年龄、外貌、超能力等锁定值是否与性格档案一致
+     - details-lock ↔ plot-skeleton：核对身份阶段表的起止章号是否与骨架中的弧线章号匹配
+     - foreshadowing ↔ plot-skeleton：核对伏笔的埋设/回收章号是否落在骨架对应弧线内
+     - 发现矛盾 → 以 plot-skeleton 为准修正其他文件，修正后重新扫描确认零矛盾
 
 **创建文件**：
 ```
@@ -175,10 +251,14 @@ novels/{name}/
 │   ├── character-map.md
 │   ├── setting-map.md
 │   ├── style.md
-│   └── foreshadowing.md
+│   ├── foreshadowing.md      (含承诺追踪扩展)
+│   └── details-lock.md       (事实锁定表，Phase 3 新增)
 ├── context/
 │   ├── memory-outline.md  (空模板)
 │   ├── recent-context.md  (空模板)
+│   ├── event-ledger.md    (事件账本，Phase 4 逐章追加)
+│   ├── timeline.md       (时间线追踪，Phase 4 逐章追加)
+│   ├── wave-plan.md       (波次分配表，Phase 4 新增)
 │   └── archives/
 └── chapters/
 ```
@@ -199,12 +279,13 @@ novels/{name}/
 
 ## Phase 5：审校
 
-### 5A：后台模式（Phase 4 每 5 章自动触发）
+### 5A：后台模式（每波次完成后无条件触发）
 
+- 触发规则：每波次写作完成后无条件触发（不再依赖"每5章"计数器）
 - 启动后台 Agent（subagent_type: code-reviewer）
-- 检查范围：最近 5 章
+- 检查范围：本波次全部章节 + 前后各1章（如存在）
 - 检查项：
-  1. **映射泄漏扫描**：按 [../shared/leak-scan.md](../shared/leak-scan.md) 完整流程执行（含全名、别名、子串、姓氏通称组合），扫描范围为最近 5 章
+  1. **映射泄漏扫描**：按 [../shared/leak-scan.md](../shared/leak-scan.md) 完整流程执行（含全名、别名、子串、姓氏通称组合），扫描范围为本波次全部章节 + 前后各1章
   2. **术语一致性**：等级体系用词是否统一
   3. **逻辑漏洞**：角色状态矛盾、时间线错误
   4. **角色一致性**：人设偏移、称呼错误
@@ -213,6 +294,17 @@ novels/{name}/
      - 信息完整性：压缩过程中是否丢失关键信息导致读者困惑
      - 节奏平衡：是否某段突然太赶或太慢
      - 因果链完整：是否因合并章节导致逻辑跳跃
+  7. **details-lock 一致性**：从 details-lock.md 提取搜索关键词列表，Grep 扫描章节，检查锁定值是否被违反
+  8. **event-ledger 状态连续性**：检查相邻章的6个状态维度是否连续
+  9. **场景转换自然度**：上章结尾→本章开头是否有过渡
+  10. **角色身份阶段合规性**：检查 details-lock 身份阶段表，确认角色称呼在正确阶段范围内
+  11. **读者视角体验检查**（审校 Agent 切换为读者视角，不参考配置文件，只读正文）：
+     - 首次阅读是否能理解剧情？标记信息铺垫不足导致困惑的段落
+     - 是否有想跳过的段落？标记节奏拖沓或信息堆砌的位置
+     - 对话是否自然？标记机械感、书面感过强的对话
+     - 章尾是否有继续阅读的欲望？标记钩子失效的章节
+     - 是否有明显的 AI 写作痕迹？（重复句式结构、模板化描写、"值得注意的是"类套话）
+     - 读者视角发现的问题默认分级为 Suggestion，仅"完全看不懂"升为 Warning
 - 结果保存至 `novels/{name}/context/review-notes.md`（追加模式，标注审校范围和时间）
 - 在下一个检查点汇报中呈现
 - Phase 7 维度 9 从此文件读取审校历史
@@ -230,7 +322,7 @@ novels/{name}/
 
 ---
 
-## Phase 7：全书校验（23 维度）
+## Phase 7：全书校验（24 维度）
 
 **前置条件**：meta.json current_chapter == total_chapters 且总字数 ≥ 45000
 
@@ -238,15 +330,28 @@ novels/{name}/
 
 更新 meta.json status → "verifying"
 
-**硬性要求：终验必须执行全部维度，不允许跳过任何维度。如果context不够，分批执行（先维度1-12，再维度13-23），但绝不允许跳过。"精简版终验"是被禁止的。**
+**硬性要求：终验必须执行全部维度，不允许跳过任何维度。如果context不够，分批执行（先维度1-12，再维度13-24），但绝不允许跳过。"精简版终验"是被禁止的。**
 
-23维度详细检查见 [references/verification.md](references/verification.md)
+24维度详细检查见 [references/verification.md](references/verification.md)
 
 **输出**：写入 `novels/{name}/verification-report.md`
 
-**转场**：
-- 发现 Critical/Warning → 自动进入 Phase 8
-- 全部通过 → 执行素材自动回流（必执行：读取 [../shared/material-reflow.md](../shared/material-reflow.md) 并按流程执行，扫描全部 4 类素材，汇报结果）→ status → "complete"
+**转场**：Phase 7 完成后 → 自动进入 Phase 7.5（无论有无问题）
+
+---
+
+## Phase 7.5：独立交叉审查
+
+详细流程见 [references/cross-review.md](references/cross-review.md)
+
+更新 meta.json status → "cross-reviewing"
+
+**门禁**：2个独立 Agent 均判定"可发布" →
+  汇总 verification-report.md（Phase 7）+ 交叉审查新发现的问题清单
+  IF 仍有未修复 Critical，或 Warning 合计 > 5 → Phase 8（修复）
+  IF 全部 PASS 或仅 Suggestion → 执行素材自动回流（必执行：读取 [../shared/material-reflow.md](../shared/material-reflow.md) 并按流程执行）→ status → "complete"
+存在未解决 Critical → 修复后复审（最多2轮）
+2轮后仍有 Critical → 输出残留清单，标注"人工决定"
 
 ---
 
@@ -256,6 +361,11 @@ novels/{name}/
 
 **流程**：
 ```
+  0. 修复任何数字/名词/设定值时，必须执行"全书关联扫描"：
+     → Grep 全书所有包含该值的引用
+     → 列出全部引用位置，逐一同步修改
+     → 修改后再次 Grep 确认零残留
+
 LOOP:
   1. 读取 verification-report.md 的问题清单
   2. 按严重度分组：Critical / Warning / Suggestion
@@ -285,15 +395,28 @@ LOOP:
   6. Suggestion：
      → 仅记录，不修改
 
-  7. 修复完成后，重新 grep 扫描受影响的章节
-  8. IF 发现新问题 且 修复轮次 < 3 → 继续循环
-  9. IF 修复轮次 == 3 且仍有问题 → 输出最终报告，标注"部分问题未解决" → 完成
-  10. IF 零残留 → 更新 verification-report.md（追加修复记录）
-  11. 素材自动回流（必执行，不可跳过）：
+  7. 修复章节正文后，如涉及 details-lock 中的锁定值变更，需同步更新 details-lock 变更日志；如涉及事件/状态变更，需重新提取该章 delta 并更新 event-ledger。
+  8. 修复完成后，执行定向复验（修复后验证闭环）：
+     a. 收集本轮修改过的所有文件列表
+     b. 确定扩展扫描范围：
+        - 修改过的章节文件 ± 2 章（衔接检查）
+        - 修改中涉及的 details-lock 关键词 → Grep 全书命中的所有章节
+        - 修改过的配置文件 → 如改了 character-map/details-lock，全书扫描（不能定向）
+     c. 在扩展范围内执行定向复验：
+        - 交叉校验 details-lock/character-map/setting-map（数值/名词/年龄是否一致）
+        - 修改处前后文通顺性（改写超过 3 句的章节重点检查）
+        - 修改是否破坏了已通过的终验维度（维度1泄漏、维度5角色名、维度13数值链）
+     d. 震荡检测：IF 同一文件在连续两轮中被反复修改 → 提前退出，标注"疑似修复震荡，建议人工审查"
+     e. IF 定向复验 PASS → 进入步骤 11
+     f. IF 发现新引入的问题 → 记录到问题清单，进入下一轮修复
+  9. IF 发现新问题 且 修复轮次 < 3 → 继续循环
+  10. IF 修复轮次 == 3 且仍有问题 → 输出最终报告，标注"部分问题未解决" → 完成
+  11. IF 零残留 → 更新 verification-report.md（追加修复记录）
+  12. 素材自动回流（必执行，不可跳过）：
       读取 ../shared/material-reflow.md 并按流程执行
       本 Skill 扫描范围：styles/ + archetypes/ + worlds/ + tropes/
       汇报回流结果（新增了哪些素材）
-  12. 状态转换门禁：
+  13. 状态转换门禁：
       IF verification-report.md 不存在 → 终止，提示"请先运行 /short verify"
       IF 仍有未修复的 Critical 或 Warning → 终止，提示"仍有问题未修复"
       ELSE → 更新 meta.json status → "complete"
@@ -321,7 +444,7 @@ LOOP:
   "style": "library/styles/xxx.md",
   "world": "library/worlds/xxx.md",
   "mode": "short",
-  "status": "analyzing|planning|configuring|writing|written|verifying|fixing|complete",
+  "status": "analyzing|planning|configuring|writing|written|verifying|cross-reviewing|fixing|complete",
   "target_words": 50000,
   "budget_words": 45000,
   "source_words": 102425,
@@ -330,18 +453,57 @@ LOOP:
   "total_chapters": 35,
   "last_review_chapter": 0,
   "last_compress_chapter": 0,
+  "ledger_version": 0,
+  "wave_postprocess_step": "done",
+  "parallel_mode": "normal|degraded",
   "created_at": "YYYY-MM-DD",
-  "updated_at": "YYYY-MM-DD"
+  "updated_at": "YYYY-MM-DD",
+  "chapters": {
+    "001": {
+      "status": "complete",
+      "write_retries": 0,
+      "verify_retries": 0,
+      "review_retries": 0,
+      "claude_retries": 0,
+      "review_score": 8.0,
+      "low_quality": false,
+      "failed_escalated": false,
+      "manual": false
+    }
+  }
 }
 ```
 
-## 绝对禁止事项
+**chapters 字段说明**（Gemini 集成新增）：
+- 初始化：新建小说时 `chapters` 为空对象 `{}`，每章完成后追加
+- 恢复：resume 时读取 chapters，跳过 `status="complete"` 的章
+- `review_score`: Gemini 审查评分（null 表示审查失败，按 0 计入平均）
+- `low_quality`: true 当 review_score < 6 或 review/claude_retries 耗尽
+- `failed_escalated`: true 当 verify_retries ≥ 3 仍有泄漏（停止写作，等待用户处理）
+- `manual`: true 当 Claude Code 直接写作（SAFETY/write_retries 耗尽时接管）
+```
 
+## 绝对禁止事项（分层加载）
+
+**写作 Agent prompt 中加载的核心禁令（6条）**：
 1. **绝不在成稿中出现原作角色名或设定名** — 最高优先级红线
-2. **绝不跳过自查步骤** — 每章写完必须执行七项自查（含伏笔变更检测+字数检查）
+2. **绝不跳过自查步骤** — 每章写完必须执行七项自查
+5. **绝不在映射表不完整时继续** — 新实体必须先生成映射再写入章节
+8. **绝不破坏情节因果链** — 压缩是删减描写，不是删减逻辑
+9. **绝不编造 details-lock.md 中未列的具体数字/物理细节** — 需要新数字时使用模糊措辞
+12. **绝不在角色尚未进入某身份阶段时使用该阶段的名称/称呼** — 检查 details-lock 身份阶段表
+
+**波次后处理和审校时加载的扩展禁令**（写作 Agent 不加载）：
 3. **绝不在记忆未加载时写作** — 必须先加载 memory-outline + recent-context
 4. **绝不遗忘更新 meta.json** — 每章写完立即更新 current_chapter
-5. **绝不在映射表不完整时继续** — 新实体必须先生成映射再写入章节
-6. **绝不让总字数超过 50000** — 这是硬上限，超标必须在修复阶段精简（不破坏情节因果链）
-7. **绝不让总字数低于 45000** — 如果低于，在修复阶段扩写补足
-8. **绝不破坏情节因果链** — 压缩是删减描写，不是删减逻辑
+6. **绝不让总字数超过 50000** — 硬上限
+7. **绝不让总字数低于 45000** — 硬下限
+10. **绝不跳过波次间的 Blocking Critical 门禁** — 最多2轮修复后降级串行
+11. **绝不在终验中使用纯抽查模式** — 必须基于 event-ledger 做定向顺序通读
+
+**禁令12审校方法说明**：核心禁令12要求不提前使用身份阶段名称 — 审校时从 details-lock 身份阶段表提取合法称呼，Grep 检查越界使用
+
+**Gemini 集成新增禁令**：
+13. **绝不在 failed_escalated 章节未处理时继续写作** — 必须先由用户决定（手动写作 or 检查映射表后重试）
+14. **绝不跳过 /short 的任何章节** — 字数预算和 event-ledger 依赖完整覆盖，跳章会破坏全书一致性
+15. **Claude Code 接管写作后必须走 verify 硬门禁** — 确保零泄漏保证对所有路径有效

@@ -29,7 +29,7 @@ user_invocable: true
 | `/novel compress` | Phase 5 |
 | `/novel verify` | Phase 6 |
 | `/novel fix` | Phase 7 |
-| `/novel auto` | 全自动流水线 1→2→3→6→7（auto 模式下 Phase 1/2 的所有选择题由 AI 自动决定，不等待用户） |
+| `/novel auto` | 全自动流水线 1→2→3→6→6.5→7（auto 模式下 Phase 1/2 的所有选择题由 AI 自动决定，不等待用户） |
 
 **自动检测算法**（无子命令时）：
 ```
@@ -38,6 +38,7 @@ user_invocable: true
 3. 优先级判断：
    a. 存在 status="writing" 的小说 → 提示恢复写作（Phase 3）
    b. 存在 status="verifying"|"fixing" → 继续校验/修复（Phase 6/7）
+   b2. 存在 status="cross-reviewing" → 继续交叉审查（Phase 6.5）
    c. 存在 status="complete" 但无 verification-report.md → 建议校验（Phase 6）
    d. 存在 status="configuring" → 继续配置（Phase 2）
    e. 存在 status="ready" 的 source 但无对应 novel → 建议配置新书（Phase 2）
@@ -63,9 +64,14 @@ user_invocable: true
 | ... | analyzing/ready | N |
 
 📖 仿写小说（novels/）
-| 名称 | 进度 | 状态 |
-|------|------|------|
-| ... | current/total (%) | writing/complete/... |
+| 名称 | 进度 | 状态 | Gemini 质量 |
+|------|------|------|------------|
+| ... | current/total (%) | writing/complete/... | avg:{score} low:{N} esc:{N} |
+
+Gemini 质量列说明（仅 meta.json 含 chapters 数据时显示）：
+  avg = 平均 review_score（跳过 null）
+  low = low_quality=true 的章节数
+  esc = failed_escalated=true 的章节数（有则标红 [ESCALATED]）
 
 📦 素材库（library/）
 原型 {N} | 世界观 {N} | 风格 {N} | 桥段 {N}
@@ -76,7 +82,7 @@ user_invocable: true
 3. 继续写作（Phase 3）
 4. 审校章节（Phase 4）
 5. 全书校验（Phase 6）
-6. 全自动流水线（Phase 1→2→3→6→7）
+6. 全自动流水线（Phase 1→2→3→6→6.5→7）
 ```
 
 ---
@@ -111,7 +117,29 @@ user_invocable: true
 **全选择题流程**（非 auto 模式）/ **全自动流程**（auto 模式）：
 1. 选择原作 source
 2. 选择世界观模板（扫描 `library/worlds/`，展示选择题）
+   - **热门优先排序**：热门世界观排在选项前面，标记 [HOT]
+   - 热门世界观（基于百度平台 Top 50 数据）：
+     - eastern-xuanhuan.md [HOT] — Top50 占比 28%，适合废柴逆袭/诸天/武道类原作
+     - urban-life.md [HOT] — Top50 占比 10%，适合神医/高手下山/都市类原作
+     - urban-rich.md [HOT] — Top50 占比 10%，适合追妻/先婚后爱/萌宝类原作
+     - cultivation.md [HOT] — Top50 占比 8%，适合凡人流/扮猪吃虎类原作
+     - historical-fiction.md [HOT] — Top50 占比 4%，适合权谋/种田/宫斗类原作
+   - 非热门世界观正常展示，不标记
+   - `/novel auto` 模式下：AI 优先选择与原作题材匹配的热门世界观
 3. 选择语言风格（扫描 `library/styles/`，展示示例对话）
+   - **基于已选世界观推荐**：根据世界观→风格映射表，推荐 1-2 个最匹配的风格，标记 [推荐]
+   - 世界观→风格推荐映射：
+     - eastern-xuanhuan → passionate / passionate-humorous [推荐]
+     - cultivation → cold-hard / passionate [推荐]
+     - urban-life → humorous / passionate-humorous [推荐]
+     - urban-rich → sweet-romance / cold-hard [推荐]
+     - historical-fiction → cold-hard / sweet-romance [推荐]
+     - rebirth-era → sweet-romance / humorous [推荐]
+     - urban-mystic → mystic-sweet [推荐]
+     - urban-power → passionate / cold-hard [推荐]
+     - campus → sweet-romance / humorous [推荐]
+     - star-interstellar → sweet-romance [推荐]
+   - `/novel auto` 模式下：AI 自动选择推荐风格中的第一个
 4. 生成 5 个候选书名 → 用户选择（+ 自定义选项）
 5. **角色映射** — 按重要度分批：
    - 主角：选原型 → 选名字（AI 生成 5 候选）→ 选说话方式
@@ -160,6 +188,14 @@ current = meta.json.current_chapter
 start_from = current + 1
 加载：style.md → memory-outline.md → recent-context.md
      → character-map.md → setting-map.md → foreshadowing.md
+
+# 检查 failed_escalated 章节（Gemini 验证循环新增）
+IF meta.json.chapters 中存在 failed_escalated=true 的章节：
+  → 打印警告：[ESCALATED] 第 {NNN} 章：3 次重写仍有原作名泄漏
+  → 暂停，等待用户决定：
+    A) 手动写作该章（Claude Code 直接写，标记 manual=true）
+    B) 跳过该章继续
+    C) 检查映射表后重试（重新进入验证循环）
 ```
 
 ### 每章写作流程（第 N 章）
@@ -180,37 +216,95 @@ start_from = current + 1
 │      → 追加到 character-map.md / setting-map.md
 │      → 记录到检查点汇报中（不暂停）
 │
-├─ 5. 生成仿写章节
-│    严格遵循：
-│    - style.md 中的系统提示词（作者人格）
-│    - character-map.md 的角色映射（包括性格、说话方式）
-│    - setting-map.md 的设定映射（所有专有名词必须替换）
-│    - memory-outline.md 的世界规则
-│    - recent-context.md 的近期事实
-│    质量要求：章末必有钩子、不违反已建立的世界规则
+├─ 5. 生成仿写章节（三层验证循环）
+│    ┌─────────────────────────────────────────────────────────────────┐
+│    │ Layer 1: verify-chapter.py  → 硬门禁（名字/别名泄漏扫描）        │
+│    │ Layer 2: review-chapter.py  → Gemini 评分（5维度，overall≥6）    │
+│    │ Layer 3: Claude Code 智能校验 → 事实/连续性/钩子/伏笔            │
+│    │ 三层全部通过后才写入 novels/                                     │
+│    └─────────────────────────────────────────────────────────────────┘
 │
-├─ 6. 六项自查（写完后立即执行）
-│    ① 扫描本章：是否存在 character-map.md 左列（原作列）的任何角色名
-│    ② 扫描本章：是否存在 setting-map.md 左列（原作列）的任何设定名
-│    ③ 与 memory-outline.md 的事实是否矛盾
-│    ④ 与 recent-context.md 的连续性是否断裂
-│    ⑤ 章末是否有钩子
-│    ⑥ 伏笔变更检测：本章是否有伏笔埋设或回收？
-│       → 如有埋设：必须在 foreshadowing.md 新增条目（编号、内容、埋设章、预计回收章、状态=已埋设）
-│       → 如有回收：必须更新 foreshadowing.md 对应条目（实际回收章、状态=已回收）
-│       → 此项为强制执行，不可跳过
-│       → 额外扫描：检查本章是否存在【】系统提示中的新悬念、对话中的承诺/预言、或未解释的异常现象
-│       → 如发现疑似新伏笔但未在 foreshadowing.md 中登记 → 强制新增条目（编号、内容、埋设章、预计回收章、状态=已埋设）
-│       → 判断标准：如果删除该信息不影响本章剧情，但读者会期待后续解释 → 视为伏笔
-│    IF 发现泄漏 → 立即修正后再保存
+│    ① 初始化
+│       write_retries = 0, verify_retries = 0, review_retries = 0, claude_retries = 0
+│       如 meta.json 无 phase_a_start_ts → 写入当前时间戳
+│       执行 mkdir -p {novel}/tmp/
 │
-├─ 7. 保存与更新
+│    ② 组装 prompt + review-context
+│       组装 write prompt → {novel}/tmp/ch-{NNN}-prompt.txt
+│         格式：=== SYSTEM === {style.md 系统提示词} === USER === {原作章节+映射表+上下文}
+│       组装 review-context → {novel}/tmp/ch-{NNN}-review-context.txt
+│         内容：style + character-map + memory-outline + recent-3章摘要(每章≤150字) + 待审章节占位
+│
+│    ③ [WRITE — Layer 0] 调用 Gemini 生成章节
+│       REPO_ROOT=$(git rev-parse --show-toplevel)
+│       MODEL=$(cat "$REPO_ROOT/scripts/model-config.json" | python3 -c "import sys,json;print(json.load(sys.stdin)['model'])")
+│       "$REPO_ROOT/scripts/.venv/bin/python3" "$REPO_ROOT/scripts/write-chapter.py" \
+│         --prompt-file {novel}/tmp/ch-{NNN}-prompt.txt \
+│         --output-file {novel}/tmp/ch-{NNN}-draft.txt
+│       - exit 3 → "API 认证失败" → 停止整个写作循环
+│       - exit 2 (SAFETY) → Claude Code 接管本章，meta.json 记录 manual=true，继续下一章
+│       - exit 1 → write_retries+1；若 < 3 → 回到 ③；否则 → Claude Code 接管
+│       - exit 0 → 进入 ④
+│
+│    ④ [VERIFY — Layer 1：硬门禁] 扫描原作名泄漏
+│       "$REPO_ROOT/scripts/.venv/bin/python3" "$REPO_ROOT/scripts/verify-chapter.py" \
+│         --chapter-file {novel}/tmp/ch-{NNN}-draft.txt \
+│         --character-map {novel}/config/character-map.md \
+│         --setting-map {novel}/config/setting-map.md \
+│         --report-file {novel}/tmp/ch-{NNN}-verify.json
+│       - exit 2（词列表为空）→ 映射表解析失败，停止写作循环，提示用户检查格式
+│       - exit 1（有泄漏）→ 追加 "VERIFY FEEDBACK: {泄漏词列表}" 到 prompt，
+│         verify_retries+1；若 >= 3 → failed_escalated=true，停止，不写入 novels/
+│         否则 → 回到 ③
+│       - exit 0 → 进入 ⑤
+│
+│    ⑤ [REVIEW — Layer 2：Gemini 评分] 独立质量审查
+│       覆盖 review-context 的 === CHAPTER TO REVIEW === 节
+│       "$REPO_ROOT/scripts/.venv/bin/python3" "$REPO_ROOT/scripts/review-chapter.py" \
+│         --review-context-file {novel}/tmp/ch-{NNN}-review-context.txt \
+│         --report-file {novel}/tmp/ch-{NNN}-review.json
+│       - exit 1/2 → 接受章节继续，review_score=null
+│       - exit 0, passed=false → 追加 "REVIEW FEEDBACK: {issues}" 到 prompt，
+│         review_retries+1；若 >= 2 → low_quality=true，进入 ⑥
+│         否则 → 回到 ③
+│       - exit 0, passed=true → 进入 ⑥
+│
+│    ⑥ [CLAUDE CODE 智能校验 — Layer 3] Claude Code 读取 draft 执行 4 项检查：
+│       ⑥-A 事实矛盾：对照 memory-outline.md，检查已确立事实是否被矛盾描述
+│            （已死角色复活、能力等级不符、地理位置矛盾 → 失败）
+│       ⑥-B 连续性：对照 recent-context.md，检查角色状态/场景/情绪是否断裂
+│            （上章结尾在A地，本章开头在B地且无转场 → 失败）
+│       ⑥-C 章末钩子：最后两段是否有未解决的紧张感或期待感（无 → 失败）
+│       ⑥-D 伏笔检测（不触发重写，只更新文件）：
+│            → 新伏笔埋设 → 新增 foreshadowing.md 条目
+│            → 旧伏笔回收 → 更新 foreshadowing.md 条目
+│            → 额外扫描：未登记的悬念/承诺/预言 → 强制新增
+│            → 判断标准：删除该信息不影响本章剧情，但读者会期待后续解释 → 视为伏笔
+│       IF ⑥-A/B/C 任一失败：
+│         构造 CLAUDE_FEEDBACK 追加到 prompt（格式：[FACT_CONFLICT]/[CONTINUITY_BREAK]/[MISSING_HOOK] + 具体描述）
+│         claude_retries+1；若 >= 2 → low_quality=true，进入 ⑦
+│         否则 → 回到 ③（带 CLAUDE_FEEDBACK 重写）
+│       IF 全部通过 → 进入 ⑦
+│
+│    独立预算设计：verify_retries(max 3 硬门禁) / review_retries(max 2 软指标) / claude_retries(max 2 智能校验) 互不占用
+│    retries=N 意味着已重试 N 次（初始写作不计入）
+│
+├─ 6. 写入与记忆更新
 │    → 写入 novels/{name}/chapters/{NNN}.md
-│    → 追加 recent-context.md（本章摘要：新增事实、角色状态、冲突、钩子）
-│    → 更新 foreshadowing.md（如有新伏笔/回收伏笔）
-│    → 更新 meta.json（current_chapter = N, updated_at = today）
+│    → 更新 meta.json：
+│        current_chapter = N, updated_at = today
+│        chapters[NNN].status = "complete"
+│        chapters[NNN].write_retries / verify_retries / review_retries / claude_retries
+│        chapters[NNN].review_score = scores.overall（或 null）
+│        chapters[NNN].low_quality = (review_score < 6 OR review/claude_retries 耗尽)
+│        chapters[NNN].manual = true（仅 Claude Code 接管时）
+│    → 追加 recent-context.md：
+│        正常章节：完整摘要（新增事实、角色状态、冲突、钩子）
+│        low_quality 章节：仅精简事实摘要（"本章发生了X、Y、Z"），不加载全文
+│    → 更新 foreshadowing.md（如 ⑥-D 有变更）
 │    → 追加 context/timeline.md：章号 | 故事内天数 | 倒计时状态 | 时间标记原文
 │      （并行模式下跳过逐章写入，每批次完成后统一回填）
+│    → 保留 {novel}/tmp/ch-{NNN}-*.txt/.json（不删除，便于中断恢复）
 │
 ├─ 8. 并行模式特殊处理（如使用 Agent 批量写作）
 │    - 同批次内不得包含相邻章节（防重叠）；批次 ≤2 章时退化为串行
@@ -313,12 +407,32 @@ start_from = current + 1
 
 ---
 
+## Phase 6.5：独立交叉审查
+
+详细流程见 [../short/references/cross-review.md](../short/references/cross-review.md)（与 /short 共用同一流程）
+
+更新 meta.json status → "cross-reviewing"
+
+**门禁**：2个独立 Agent 均判定"可发布" →
+  汇总 verification-report.md（Phase 6）+ 交叉审查新发现的问题清单
+  IF 仍有未修复 Critical，或 Warning 合计 > 5 → Phase 7（修复）
+  IF 全部 PASS 或仅 Suggestion → 执行素材自动回流（必执行：读取 ../shared/material-reflow.md 并按流程执行）→ status → "complete"
+存在未解决 Critical → 修复后复审（最多2轮）
+2轮后仍有 Critical → 输出残留清单，标注"人工决定"
+
+---
+
 ## Phase 7：修复
 
 更新 meta.json status → "fixing"
 
 **流程**：
 ```
+  0. 修复任何数字/名词/设定值时，必须执行"全书关联扫描"：
+     → Grep 全书所有包含该值的引用
+     → 列出全部引用位置，逐一同步修改
+     → 修改后再次 Grep 确认零残留
+
 LOOP:
   1. 读取 verification-report.md 的问题清单
   2. 按严重度分组：Critical / Warning / Suggestion
@@ -338,11 +452,15 @@ LOOP:
   7. IF 发现新问题 且 修复轮次 < 3 → 继续循环
   8. IF 修复轮次 == 3 且仍有问题 → 输出最终报告，标注"部分问题未解决" → 完成
   9. IF 零残留 → 更新 verification-report.md（追加修复记录）
-  10. 素材自动回流（必执行，不可跳过）：
+  10. 状态转换门禁：
+      IF verification-report.md 不存在 → 终止，提示"请先运行 /novel verify"
+      IF 仍有未修复的 Critical 或 Warning → 终止，提示"仍有问题未修复"，status 保持 "fixing"
+      ELSE → 继续
+  11. 素材自动回流（必执行，不可跳过）：
       读取 ../shared/material-reflow.md 并按流程执行
       本 Skill 扫描范围：styles/ + archetypes/ + worlds/ + tropes/
       汇报回流结果（新增了哪些素材）
-  11. 更新 meta.json status → "complete"
+  12. 更新 meta.json status → "complete"
 ```
 
 ---
@@ -353,7 +471,7 @@ LOOP:
 任何时候中断（会话断开、context 耗尽、用户叫停）：
   → meta.json 的 current_chapter 指向最后完成的章节
   → memory-outline.md + recent-context.md 保持最新状态
-  → 下次 /novel 自动检测到 status="writing"/"verifying"/"fixing"
+  → 下次 /novel 自动检测到 status="writing"/"verifying"/"cross-reviewing"/"fixing"
   → 加载对应状态 → 从断点继续
 ```
 
@@ -367,7 +485,7 @@ LOOP:
   "style": "library/styles/xxx.md",
   "world": "library/worlds/xxx.md",
   "mode": "novel",
-  "status": "analyzing|configuring|writing|verifying|fixing|complete",
+  "status": "analyzing|configuring|writing|verifying|cross-reviewing|fixing|complete",
   "current_chapter": 0,
   "total_chapters": 45,
   "last_review_chapter": 0,

@@ -1,0 +1,5 @@
+{
+  "model": "gemini-2.5-flash",
+  "project_id": "phoenix-browser",
+  "region": "us-central1"
+}
