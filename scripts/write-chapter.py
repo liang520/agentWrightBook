@@ -85,7 +85,7 @@ def call_gemini(config, creds, system_prompt, user_prompt):
     if system_prompt:
         payload["systemInstruction"] = {"parts": [{"text": system_prompt}]}
 
-    resp = requests.post(api_url, headers=headers, json=payload, timeout=180)
+    resp = requests.post(api_url, headers=headers, json=payload, timeout=300)
     resp.raise_for_status()
     result = resp.json()
 
