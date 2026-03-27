@@ -344,15 +344,25 @@ g. 门禁判定                                    ← 前置：f 完成
 |
 |    === 5-GEMINI（gemini_mode=true 时执行，三层验证循环）===
 |
+|    验证分级（实战优化 v2）：
+|      FULL_VERIFY = (N <= 4) OR (N % 5 == 0) OR (N == total_chapters)
+|        → 前4章 + 每5章 + 最后一章：执行完整三层（write→verify→review→claude check）
+|      STANDARD_VERIFY = 其他章节
+|        → 执行两层（write→verify）。verify 不通过必须重试至少1次（不能跳过）。
+|      ⚠️ verify 泄漏是硬门禁，无论哪种模式都不能跳过重试。
+|
 |    ① 初始化
 |       write_retries = 0, verify_retries = 0, review_retries = 0, claude_retries = 0
 |       执行 mkdir -p {novel}/tmp/
 |
 |    ② 组装 prompt + review-context
+|       ⚠️ 必须按 [references/prompt-template.md](references/prompt-template.md) 模板填充
+|       ⚠️ 禁止手动压缩或重写 style.md 系统提示词——原文加载
 |       write prompt → {novel}/tmp/ch-{NNN}-prompt.txt
-|         格式：=== SYSTEM === {style.md 系统提示词}
-|                === USER === {压缩映射表+原作章节+映射表+memory-outline+recent-context+details-lock相关条目}
-|         包含：目标字数、压缩策略、视角框架规则、禁令
+|         === SYSTEM === 部分：读取 config/style.md "## 系统提示词" 到文件末尾，原文粘贴
+|         === USER === 部分：按模板填充（字数第一优先、替换清单第二优先）
+|         前章注入：读取 chapters/{N-1}.md 末尾500字原文（不是手写摘要）
+|         弧间过渡：如果本章与前章属不同弧线，添加弧间过渡要求
 |       review-context → {novel}/tmp/ch-{NNN}-review-context.txt
 |         内容：style + character-map + memory-outline + recent-3章摘要(每章≤150字) + 待审章节占位
 |
@@ -381,7 +391,9 @@ g. 门禁判定                                    ← 前置：f 完成
 |         正确做法：在 prompt 的 === USER === 开头添加【最高优先级】泄漏词替换清单。
 |       - exit 0 → 进入 ⑤
 |
-|    ⑤ [REVIEW — Layer 2：Gemini 评分]
+|    IF STANDARD_VERIFY（非全量验证章节）→ 跳过 ⑤⑥⑥-POST，直接进入 ⑦
+|
+|    ⑤ [REVIEW — Layer 2：Gemini 评分]（仅 FULL_VERIFY 章节执行）
 |       覆盖 review-context 的 === CHAPTER TO REVIEW === 节
 |       "$REPO_ROOT/scripts/.venv/bin/python3" "$REPO_ROOT/scripts/review-chapter.py" \
 |         --review-context-file {novel}/tmp/ch-{NNN}-review-context.txt \
@@ -453,8 +465,13 @@ g. 门禁判定                                    ← 前置：f 完成
 |       注：仅扫描本章，不做全量比对。追加模式，不重写整个文件。
 |    (7) 字数检查（超标>10%→精简；不足>15%→补充） → [gemini: Layer 3 ⑥-E]
 |
-+-- 7. 保存与更新
-|    → chapters/{NNN}.md、recent-context.md、foreshadowing.md、meta.json
++-- 7. 保存与更新（全部必执行，不可跳过）
+|    → chapters/{NNN}.md — 保存章节
+|    → meta.json — 更新 current_chapter + chapters[NNN] 条目
+|    → recent-context.md — 追加本章摘要（2-3句话：核心事件+新登场角色+关键事实变更）
+|      ⚠️ 此步骤不可跳过。即使在批处理/提速模式下也必须执行。
+|      如果 context 不够写完整摘要，至少写一行："{章号}:{核心事件关键词}"
+|    → foreshadowing.md — 更新伏笔状态
 |    → Gemini 模式额外字段（gemini_mode=true 时写入 meta.json）：
 |        chapters[NNN].write_retries / verify_retries / review_retries / claude_retries
 |        chapters[NNN].review_score = scores.overall（或 null）

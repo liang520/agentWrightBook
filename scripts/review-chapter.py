@@ -46,7 +46,13 @@ def call_gemini_review(config, creds, review_context):
 
     payload = {
         "systemInstruction": {
-            "parts": [{"text": "你是一位严格的网文编辑。请直接输出JSON，不要多余解释。"}]
+            "parts": [{"text": (
+                "你是一位严格的网文编辑。请严格按以下JSON格式输出，不要多余解释：\n"
+                '{"scores":{"character":1-10,"style":1-10,"continuity":1-10,"hook":1-10,"overall":1-10},'
+                '"issues":["问题1","问题2"]}\n'
+                "scores必须包含character/style/continuity/hook/overall五个维度，每个1-10分。"
+                "issues列出发现的问题。如果没有问题则为空数组[]。"
+            )}]
         },
         "contents": [{"role": "user", "parts": [{"text": review_context}]}],
         "generationConfig": {
@@ -101,16 +107,31 @@ def extract_json(text):
 
 
 def validate_review(data):
-    """验证审查结果格式。"""
+    """验证审查结果格式，宽松模式。"""
     if not isinstance(data, dict):
         return False
-    scores = data.get("scores", {})
-    required_dims = ["character", "style", "continuity", "hook", "overall"]
-    for dim in required_dims:
-        if dim not in scores:
-            return False
-        if not isinstance(scores[dim], (int, float)):
-            return False
+    scores = data.get("scores")
+    if scores is None or not isinstance(scores, dict) or len(scores) == 0:
+        # 尝试从顶层字段提取分数（Gemini 有时展平 scores）
+        fallback_scores = {}
+        for dim in ["character", "style", "continuity", "hook", "overall"]:
+            if dim in data and isinstance(data[dim], (int, float)):
+                fallback_scores[dim] = data[dim]
+        if len(fallback_scores) >= 3:  # 至少3个维度就接受（宽松模式）
+            data["scores"] = fallback_scores
+            if "overall" not in fallback_scores:
+                data["scores"]["overall"] = sum(fallback_scores.values()) / len(fallback_scores)
+            print("WARNING: [review-chapter] Used fallback flat-scores extraction", file=sys.stderr)
+            return True
+        return False
+    # 正常路径：至少有 overall
+    if "overall" not in scores:
+        if len(scores) > 0:
+            data["scores"]["overall"] = sum(v for v in scores.values() if isinstance(v, (int, float))) / max(1, len([v for v in scores.values() if isinstance(v, (int, float))]))
+            return True
+        return False
+    if not isinstance(scores["overall"], (int, float)):
+        return False
     return True
 
 

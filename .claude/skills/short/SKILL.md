@@ -1,7 +1,6 @@
 ---
 name: short
 description: 短篇改编指令 — 将任意长度原作压缩改编为4.5万-5万字短篇。全自动无人参与流水线：分析→骨架提取→压缩规划→配置→写作→审校→校验→修复。支持子命令：status/analyze/plan/new/write/continue/review/compress/verify/fix/auto
-user_invocable: true
 ---
 
 # 短篇改编流程
@@ -507,3 +506,24 @@ LOOP:
 13. **绝不在 failed_escalated 章节未处理时继续写作** — 必须先由用户决定（手动写作 or 检查映射表后重试）
 14. **绝不跳过 /short 的任何章节** — 字数预算和 event-ledger 依赖完整覆盖，跳章会破坏全书一致性
 15. **Claude Code 接管写作后必须走 verify 硬门禁** — 确保零泄漏保证对所有路径有效
+
+
+## User-Learned Best Practices & Constraints
+
+> **Auto-Generated Section**: This section is maintained by `skill-evolution-manager`. Do not edit manually.
+
+### User Preferences
+- prompt组装必须使用标准化模板文件（prompt-template.md），禁止执行者手动压缩style.md系统提示词
+- 三层验证循环改为分级模式：前4章+每5章抽检=全三层，其余=write+verify两层
+- 前章正文注入必须自动化：读取N-1章末尾500字，不依赖执行者手写摘要
+- 弧间过渡：compression-map标记弧线边界章节，对边界章prompt增加过渡衔接要求
+
+### Known Fixes & Workarounds
+- review-chapter.py JSON解析100%失败：需修复JSON提取逻辑适配Gemini 2.5 Flash实际输出格式
+- 字数持续偏低：在prompt-template中将字数要求提升到=== USER ===第一行最高优先级位置
+- 泄漏重试被绕过：批处理模式必须实现至少1次verify重试，不能把verify失败当warning
+- event-ledger/recent-context更新断裂：考虑脚本化自动更新，或在终验阶段增加记忆系统重建步骤
+
+### Custom Instruction Injection
+
+核心原则：让正确的做法比偷懒更容易。通过脚本化、模板化、自动化减少执行者跳过关键步骤的可能。实战验证：blade-assassins 32章，发现8个设计缺陷。

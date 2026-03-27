@@ -1,0 +1,16 @@
+{
+  "last_updated": "2026-03-27T17:07:17.079057",
+  "preferences": [
+    "prompt组装必须使用标准化模板文件（prompt-template.txt），禁止执行者手动压缩style.md系统提示词",
+    "三层验证循环改为分级模式：前4章+每5章抽检=全三层，其余=write+verify两层",
+    "前章正文注入必须自动化：读取N-1章末尾500字，不依赖执行者手写摘要",
+    "弧间过渡：compression-map标记弧线边界章节，对边界章prompt增加过渡衔接要求"
+  ],
+  "fixes": [
+    "review-chapter.py JSON解析100%失败：需修复JSON提取逻辑适配Gemini 2.5 Flash实际输出格式",
+    "字数持续偏低：在prompt-template中将字数要求提升到=== USER ===第一行最高优先级位置",
+    "泄漏重试被绕过：批处理模式必须实现至少1次verify重试，不能把verify失败当warning",
+    "event-ledger/recent-context更新断裂：考虑脚本化自动更新，或在终验阶段增加记忆系统重建步骤"
+  ],
+  "custom_prompts": "核心原则：让正确的做法比偷懒更容易。通过脚本化、模板化、自动化减少执行者跳过关键步骤的可能。实战验证：blade-assassins 32章，发现8个设计缺陷。"
+}
