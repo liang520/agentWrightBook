@@ -78,7 +78,8 @@ def call_gemini(config, creds, system_prompt, user_prompt):
         "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
         "generationConfig": {
             "temperature": 0.7,
-            "maxOutputTokens": 4096,
+            "maxOutputTokens": 8192,
+            "thinkingConfig": {"thinkingBudget": 0},
         },
     }
 

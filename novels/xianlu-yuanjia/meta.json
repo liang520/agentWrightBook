@@ -1,0 +1,22 @@
+{
+  "title": "仙路冤家",
+  "source": "sources/czhsdtjhl",
+  "genre": "仙侠言情",
+  "style": "library/styles/sweet-romance.md",
+  "world": "library/worlds/cultivation.md",
+  "mode": "short",
+  "status": "complete",
+  "target_words": 50000,
+  "budget_words": 45000,
+  "source_words": 188668,
+  "compression_ratio": 4.19,
+  "current_chapter": 31,
+  "total_chapters": 31,
+  "last_review_chapter": 0,
+  "last_compress_chapter": 0,
+  "ledger_version": 0,
+  "wave_postprocess_step": "done",
+  "parallel_mode": "normal",
+  "created_at": "2026-03-23",
+  "updated_at": "2026-03-23"
+}

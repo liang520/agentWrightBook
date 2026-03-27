@@ -253,9 +253,10 @@ IF meta.json.chapters 中存在 failed_escalated=true 的章节：
 │         --setting-map {novel}/config/setting-map.md \
 │         --report-file {novel}/tmp/ch-{NNN}-verify.json
 │       - exit 2（词列表为空）→ 映射表解析失败，停止写作循环，提示用户检查格式
-│       - exit 1（有泄漏）→ 追加 "VERIFY FEEDBACK: {泄漏词列表}" 到 prompt，
+│       - exit 1（有泄漏）→ **重建** prompt（将泄漏词列表写入 prompt 开头【最高优先级】区块，不追加），
 │         verify_retries+1；若 >= 3 → failed_escalated=true，停止，不写入 novels/
-│         否则 → 回到 ③
+│         否则 → 回到 ②（重新生成 prompt）
+│         ⚠️ 不要追加 feedback，重建整个 prompt 文件。追加导致 prompt 膨胀 → Gemini 输出递减。
 │       - exit 0 → 进入 ⑤
 │
 │    ⑤ [REVIEW — Layer 2：Gemini 评分] 独立质量审查
@@ -264,9 +265,9 @@ IF meta.json.chapters 中存在 failed_escalated=true 的章节：
 │         --review-context-file {novel}/tmp/ch-{NNN}-review-context.txt \
 │         --report-file {novel}/tmp/ch-{NNN}-review.json
 │       - exit 1/2 → 接受章节继续，review_score=null
-│       - exit 0, passed=false → 追加 "REVIEW FEEDBACK: {issues}" 到 prompt，
+│       - exit 0, passed=false → **重建** prompt（将 review issues 写入 prompt 开头），
 │         review_retries+1；若 >= 2 → low_quality=true，进入 ⑥
-│         否则 → 回到 ③
+│         否则 → 回到 ②（重新生成 prompt，不追加）
 │       - exit 0, passed=true → 进入 ⑥
 │
 │    ⑥ [CLAUDE CODE 智能校验 — Layer 3] Claude Code 读取 draft 执行 4 项检查：
@@ -281,9 +282,9 @@ IF meta.json.chapters 中存在 failed_escalated=true 的章节：
 │            → 额外扫描：未登记的悬念/承诺/预言 → 强制新增
 │            → 判断标准：删除该信息不影响本章剧情，但读者会期待后续解释 → 视为伏笔
 │       IF ⑥-A/B/C 任一失败：
-│         构造 CLAUDE_FEEDBACK 追加到 prompt（格式：[FACT_CONFLICT]/[CONTINUITY_BREAK]/[MISSING_HOOK] + 具体描述）
+│         构造 CLAUDE_FEEDBACK，**重建** prompt（将 feedback 写入 prompt 开头，不追加）
 │         claude_retries+1；若 >= 2 → low_quality=true，进入 ⑦
-│         否则 → 回到 ③（带 CLAUDE_FEEDBACK 重写）
+│         否则 → 回到 ②（重新生成 prompt）
 │       IF 全部通过 → 进入 ⑦
 │
 │    独立预算设计：verify_retries(max 3 硬门禁) / review_retries(max 2 软指标) / claude_retries(max 2 智能校验) 互不占用

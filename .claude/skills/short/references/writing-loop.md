@@ -373,9 +373,12 @@ g. 门禁判定                                    ← 前置：f 完成
 |         --setting-map {novel}/config/setting-map.md \
 |         --report-file {novel}/tmp/ch-{NNN}-verify.json
 |       - exit 2（空词列表）→ 停止写作循环，提示检查映射表格式
-|       - exit 1（有泄漏）→ 追加 VERIFY FEEDBACK 到 prompt，
+|       - exit 1（有泄漏）→ **重建** prompt（不是追加！将泄漏词列表写入 prompt 开头的【最高优先级】区块），
 |         verify_retries+1；若 >= 3 → failed_escalated=true，停止
 |         否则 → 回到 ③
+|         ⚠️ 重要：每次重写时重新生成 prompt 文件，不要追加 feedback。
+|         追加会导致 prompt 膨胀 → Gemini 输出越来越短。
+|         正确做法：在 prompt 的 === USER === 开头添加【最高优先级】泄漏词替换清单。
 |       - exit 0 → 进入 ⑤
 |
 |    ⑤ [REVIEW — Layer 2：Gemini 评分]
@@ -384,9 +387,9 @@ g. 门禁判定                                    ← 前置：f 完成
 |         --review-context-file {novel}/tmp/ch-{NNN}-review-context.txt \
 |         --report-file {novel}/tmp/ch-{NNN}-review.json
 |       - exit 1/2 → 接受章节继续，review_score=null（null 按 0 分计入质量平均）
-|       - exit 0, passed=false → 追加 REVIEW FEEDBACK 到 prompt，
+|       - exit 0, passed=false → **重建** prompt（将 review issues 写入 prompt 开头），
 |         review_retries+1；若 >= 2 → low_quality=true，进入 ⑥
-|         否则 → 回到 ③
+|         否则 → 回到 ②（重新生成 prompt，不追加）
 |       - exit 0, passed=true → 进入 ⑥
 |
 |    ⑥ [CLAUDE CODE 智能校验 — Layer 3] Claude Code 读取 draft 执行检查：
@@ -399,10 +402,10 @@ g. 门禁判定                                    ← 前置：f 完成
 |       ⑥-E 字数检查（超标>10%→重写精简；不足>15%→重写补充）
 |
 |       IF ⑥-A/B/C/E 任一失败：
-|         构造 CLAUDE_FEEDBACK 追加到 prompt
+|         构造 CLAUDE_FEEDBACK，**重建** prompt（将 feedback 写入 prompt 开头，不追加）
 |         格式：[FACT_CONFLICT]/[CONTINUITY_BREAK]/[MISSING_HOOK]/[WORD_COUNT] + 具体描述
 |         claude_retries+1；若 >= 2 → low_quality=true，进入 ⑥-POST
-|         否则 → 回到 ③
+|         否则 → 回到 ②（重新生成 prompt）
 |       IF 全部通过 → 进入 ⑥-POST
 |
 |    ⑥-POST [确定性检查 — Grep 层]（Layer 3 通过后、写入前执行）
