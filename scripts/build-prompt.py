@@ -105,7 +105,16 @@ def read_source_chapters(source_dir, source_str):
     for part in parts:
         part = part.strip()
         # 尝试多种格式
-        for fmt in [f"{int(part):03d}.md", f"{part}.md"]:
+        # 处理 "038前半" 等非纯数字格式
+        try:
+            num = int(part)
+            candidates = [f"{num:03d}.md"]
+        except ValueError:
+            # 提取数字部分，如 "038前半" → 038
+            import re as _re
+            m = _re.match(r"(\d+)", part)
+            candidates = [f"{int(m.group(1)):03d}.md"] if m else [f"{part}.md"]
+        for fmt in candidates:
             path = Path(source_dir) / "chapters" / fmt
             if path.exists():
                 text = path.read_text(encoding="utf-8")
