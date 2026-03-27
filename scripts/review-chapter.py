@@ -58,7 +58,6 @@ def call_gemini_review(config, creds, review_context):
         "generationConfig": {
             "temperature": 0.3,
             "maxOutputTokens": 2048,
-            "thinkingConfig": {"thinkingBudget": 0},
         },
     }
 
