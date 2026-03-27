@@ -391,7 +391,7 @@ g. 门禁判定                                    ← 前置：f 完成
 |         正确做法：在 prompt 的 === USER === 开头添加【最高优先级】泄漏词替换清单。
 |       - exit 0 → 进入 ⑤
 |
-|    IF STANDARD_VERIFY（非全量验证章节）→ 跳过 ⑤⑥⑥-POST，直接进入 ⑦
+|    IF STANDARD_VERIFY（非全量验证章节）→ 跳过 ⑤⑥，但仍执行 ⑥-POST（Grep 零成本检查）→ 进入 ⑦
 |
 |    ⑤ [REVIEW — Layer 2：Gemini 评分]（仅 FULL_VERIFY 章节执行）
 |       覆盖 review-context 的 === CHAPTER TO REVIEW === 节

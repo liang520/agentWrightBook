@@ -66,23 +66,40 @@ def test_validate_review_valid():
     print("✓ test_validate_review_valid")
 
 
-def test_validate_review_missing_dim():
-    """缺少维度"""
+def test_validate_review_partial_dims():
+    """部分维度（≥1个有 overall）→ 宽松接受"""
     data = {
         "scores": {"character": 8, "style": 7, "overall": 8},  # 缺 continuity, hook
         "issues": [],
     }
-    assert validate_review(data) is False
-    print("✓ test_validate_review_missing_dim")
+    assert validate_review(data) is True  # 宽松模式：有 overall 就接受
+    print("✓ test_validate_review_partial_dims")
+
+
+def test_validate_review_flat_scores():
+    """展平格式（scores 不在嵌套 dict 里）→ fallback 接受"""
+    data = {"character": 7, "style": 8, "continuity": 6, "hook": 7, "overall": 7, "issues": []}
+    assert validate_review(data) is True
+    assert "scores" in data  # fallback 应该创建 scores 字段
+    assert data["scores"]["overall"] == 7
+    print("✓ test_validate_review_flat_scores")
+
+
+def test_validate_review_auto_average():
+    """部分维度无 overall → 自动计算平均"""
+    data = {"scores": {"character": 8, "style": 6}}
+    assert validate_review(data) is True
+    assert data["scores"]["overall"] == 7.0  # (8+6)/2
+    print("✓ test_validate_review_auto_average")
 
 
 def test_validate_review_non_numeric():
-    """非数字分数"""
+    """非数字分数但有数字 overall → 宽松接受"""
     data = {
         "scores": {"character": "high", "style": 7, "continuity": 9, "hook": 8, "overall": 8},
         "issues": [],
     }
-    assert validate_review(data) is False
+    assert validate_review(data) is True  # 有数字 overall 就接受
     print("✓ test_validate_review_non_numeric")
 
 
@@ -110,7 +127,9 @@ if __name__ == "__main__":
         test_extract_json_plain_code_block,
         test_extract_json_invalid,
         test_validate_review_valid,
-        test_validate_review_missing_dim,
+        test_validate_review_partial_dims,
+        test_validate_review_flat_scores,
+        test_validate_review_auto_average,
         test_validate_review_non_numeric,
         test_score_boundary_pass,
         test_score_boundary_fail,
