@@ -144,6 +144,81 @@ def read_file_safe(path, default=""):
     return default
 
 
+def parse_foreshadowing(foreshadow_path, chapter_num):
+    """从 foreshadowing.md 提取当前章节的伏笔指令。
+    返回 (plant_directives, reveal_directives) 两个列表。
+    """
+    plants = []  # 本章埋设的伏笔
+    reveals = []  # 本章回收的伏笔
+
+    if not foreshadow_path.exists():
+        return plants, reveals
+
+    text = foreshadow_path.read_text(encoding="utf-8")
+    for line in text.splitlines():
+        if not line.startswith("|"):
+            continue
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        if len(cells) < 4:
+            continue
+        if "---" in cells[0] or "编号" in cells[0]:
+            continue
+
+        fid = cells[0].strip()
+        content = cells[1].strip()
+        plant_ch_str = cells[2].strip()
+        reveal_ch_str = cells[3].strip()
+
+        if not fid or not content:
+            continue
+
+        # 解析章号（支持 "1", "15-19", "5/19/22/27", "贯穿", "未回收"）
+        def matches_chapter(ch_str, ch_num):
+            if not ch_str or ch_str in ("贯穿", "未回收", "待埋设"):
+                return False
+            for part in re.split(r"[/,]", ch_str):
+                part = part.strip()
+                if "-" in part:
+                    try:
+                        a, b = part.split("-", 1)
+                        if int(a) <= ch_num <= int(b):
+                            return True
+                    except ValueError:
+                        pass
+                else:
+                    try:
+                        if int(part) == ch_num:
+                            return True
+                    except ValueError:
+                        pass
+            return False
+
+        if matches_chapter(plant_ch_str, chapter_num):
+            plants.append(f"{fid}: {content}")
+        if matches_chapter(reveal_ch_str, chapter_num):
+            reveals.append(f"{fid}: {content}")
+
+    return plants, reveals
+
+
+def build_foreshadow_directives(plants, reveals):
+    """将伏笔列表转换为 prompt 中的操作性指令。"""
+    lines = []
+    if plants:
+        lines.append("【伏笔埋设 — 保密规则】")
+        for p in plants:
+            lines.append(f"- {p}")
+            lines.append(f"  → 本章只暗示此悬念，不得直接揭露。涉及的角色身份/秘密不得点名确认。")
+        lines.append("")
+    if reveals:
+        lines.append("【伏笔回收 — 揭露规则】")
+        for r in reveals:
+            lines.append(f"- {r}")
+            lines.append(f"  → 本章揭露此前悬念。揭露前保持隐藏称呼，揭露场景后才切换真名。")
+        lines.append("")
+    return "\n".join(lines)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Build Gemini writing prompt")
     parser.add_argument("--novel-dir", required=True, help="Novel directory (e.g., novels/blade-assassins)")
@@ -191,7 +266,12 @@ def main():
     memory_outline = read_file_safe(novel / "context" / "memory-outline.md", "(空)")
     recent_context = read_file_safe(novel / "context" / "recent-context.md", "(空)")
 
-    # 7. 组装 prompt
+    # 7. 伏笔指令
+    foreshadow_path = novel / "config" / "foreshadowing.md"
+    plants, reveals = parse_foreshadowing(foreshadow_path, ch)
+    foreshadow_block = build_foreshadow_directives(plants, reveals)
+
+    # 8. 组装 prompt
     target = ch_info["target_words"]
 
     leak_block = ""
@@ -212,7 +292,7 @@ def main():
 绝对不能出现左侧任何词：
 {chr(10).join(replacements)}
 
-【写作任务】第{ch}章
+{foreshadow_block}【写作任务】第{ch}章
 - 对应原作：第{ch_info['source_chapters']}章
 - 压缩策略：{ch_info['strategy']}
 - 叙事功能：{ch_info['function']}
