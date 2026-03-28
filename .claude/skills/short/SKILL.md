@@ -507,23 +507,29 @@ LOOP:
 14. **绝不跳过 /short 的任何章节** — 字数预算和 event-ledger 依赖完整覆盖，跳章会破坏全书一致性
 15. **Claude Code 接管写作后必须走 verify 硬门禁** — 确保零泄漏保证对所有路径有效
 
-
 ## User-Learned Best Practices & Constraints
 
 > **Auto-Generated Section**: This section is maintained by `skill-evolution-manager`. Do not edit manually.
 
 ### User Preferences
-- prompt组装必须使用标准化模板文件（prompt-template.md），禁止执行者手动压缩style.md系统提示词
+- prompt组装必须使用标准化模板文件（prompt-template.txt），禁止执行者手动压缩style.md系统提示词
 - 三层验证循环改为分级模式：前4章+每5章抽检=全三层，其余=write+verify两层
 - 前章正文注入必须自动化：读取N-1章末尾500字，不依赖执行者手写摘要
 - 弧间过渡：compression-map标记弧线边界章节，对边界章prompt增加过渡衔接要求
+- Gemini 2.5 Pro 需要去掉 thinkingBudget=0（Pro不支持），write-chapter.py 应根据模型名自动判断
+- Pro 的 API timeout 需要 300s（Flash 用 180s 够了），应从 model-config.json 读取或根据模型自动设置
+- Pro 速率限制严格，批量写作需要间隔 5s+，build-prompt.py 或批处理脚本应内置间隔
+- temperature=1.0 + 正向引导 style.md 是当前最佳组合，不要回退到约束型风格
 
 ### Known Fixes & Workarounds
 - review-chapter.py JSON解析100%失败：需修复JSON提取逻辑适配Gemini 2.5 Flash实际输出格式
 - 字数持续偏低：在prompt-template中将字数要求提升到=== USER ===第一行最高优先级位置
 - 泄漏重试被绕过：批处理模式必须实现至少1次verify重试，不能把verify失败当warning
 - event-ledger/recent-context更新断裂：考虑脚本化自动更新，或在终验阶段增加记忆系统重建步骤
+- ch31→ch32 重复问题：相邻章共享同一原作章节（038前半/后半）时，build-prompt.py 需注入更强的防重叠指令，明确区分前后半的事件边界
+- 中后段摘要化：章节越往后 prompt 中 recent-context 越长，挤压了原作参考空间。考虑只注入最近3章摘要而非全部
+- model-config.json 应支持 timeout 和 thinkingConfig 字段，让 write-chapter.py 读取而非硬编码
 
 ### Custom Instruction Injection
 
-核心原则：让正确的做法比偷懒更容易。通过脚本化、模板化、自动化减少执行者跳过关键步骤的可能。实战验证：blade-assassins 32章，发现8个设计缺陷。
+v4 Pro 实战：32章完成，Codex评分6.3/10（vs Flash 5.1）。Pipeline成熟，核心改善来自模型升级+style.md正向引导+伏笔系统。下一步：选新原作验证泛化能力。

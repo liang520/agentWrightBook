@@ -74,18 +74,24 @@ def call_gemini(config, creds, system_prompt, user_prompt):
         "Content-Type": "application/json",
     }
 
+    gen_config = {
+        "temperature": config.get("temperature", 1.0),
+        "maxOutputTokens": config.get("max_output_tokens", 16384),
+    }
+    # Flash 支持 thinkingBudget=0，Pro 不支持
+    if "flash" in model.lower():
+        gen_config["thinkingConfig"] = {"thinkingBudget": 0}
+
     payload = {
         "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
-        "generationConfig": {
-            "temperature": 1.0,
-            "maxOutputTokens": 16384,
-        },
+        "generationConfig": gen_config,
     }
 
     if system_prompt:
         payload["systemInstruction"] = {"parts": [{"text": system_prompt}]}
 
-    resp = requests.post(api_url, headers=headers, json=payload, timeout=300)
+    timeout = config.get("timeout", 180)
+    resp = requests.post(api_url, headers=headers, json=payload, timeout=timeout)
     resp.raise_for_status()
     result = resp.json()
 

@@ -1,5 +1,7 @@
 {
   "model": "gemini-2.5-pro",
   "project_id": "phoenix-browser",
-  "region": "us-central1"
+  "region": "us-central1",
+  "timeout": 300,
+  "request_interval": 5
 }
