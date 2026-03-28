@@ -85,6 +85,31 @@ def test_validate_output_none():
     print("✓ test_validate_output_none")
 
 
+def test_validate_output_target_words_pass():
+    """字数达标通过"""
+    text = "这是一段正常的章节内容。" * 200  # ~1200 chars
+    valid, reason = validate_output(text, target_words=1000)
+    assert valid is True
+    print("✓ test_validate_output_target_words_pass")
+
+
+def test_validate_output_target_words_fail():
+    """字数不达标"""
+    text = "短内容。" * 50  # ~150 chars content
+    valid, reason = validate_output(text, target_words=2000)
+    assert valid is False
+    assert "word count" in reason
+    print("✓ test_validate_output_target_words_fail")
+
+
+def test_validate_output_target_words_zero():
+    """target_words=0 跳过字数检查"""
+    text = "这是一段正常的章节内容。" * 20  # 足够长过 200 char minimum
+    valid, reason = validate_output(text, target_words=0)
+    assert valid is True
+    print("✓ test_validate_output_target_words_zero")
+
+
 if __name__ == "__main__":
     tests = [
         test_parse_prompt_both_sections,
@@ -95,6 +120,9 @@ if __name__ == "__main__":
         test_validate_output_empty,
         test_validate_output_too_short,
         test_validate_output_none,
+        test_validate_output_target_words_pass,
+        test_validate_output_target_words_fail,
+        test_validate_output_target_words_zero,
     ]
     failed = 0
     for test in tests:

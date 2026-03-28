@@ -9,69 +9,13 @@ Exit codes:
   1 = JSON 解析失败
   2 = API 调用失败 / 其他异常
 """
-import argparse
 import json
-import os
 import re
 import sys
 from pathlib import Path
 
-import requests
-from google.oauth2 import service_account
-from google.auth.transport.requests import Request as AuthRequest
-
-
-def load_config(config_file):
-    with open(config_file, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-
-def call_gemini_review(config, creds, review_context):
-    """调用 Gemini 审查，thinkingBudget=0 确保完整 JSON 输出。"""
-    if not creds.valid:
-        creds.refresh(AuthRequest())
-
-    model = config["model"]
-    project_id = config["project_id"]
-    region = config["region"]
-    api_url = (
-        f"https://{region}-aiplatform.googleapis.com/v1/projects/{project_id}"
-        f"/locations/{region}/publishers/google/models/{model}:generateContent"
-    )
-
-    headers = {
-        "Authorization": f"Bearer {creds.token}",
-        "Content-Type": "application/json",
-    }
-
-    payload = {
-        "systemInstruction": {
-            "parts": [{"text": (
-                "你是一位严格的网文编辑。请严格按以下JSON格式输出，不要多余解释：\n"
-                '{"scores":{"character":1-10,"style":1-10,"continuity":1-10,"hook":1-10,"overall":1-10},'
-                '"issues":["问题1","问题2"]}\n'
-                "scores必须包含character/style/continuity/hook/overall五个维度，每个1-10分。"
-                "issues列出发现的问题。如果没有问题则为空数组[]。"
-            )}]
-        },
-        "contents": [{"role": "user", "parts": [{"text": review_context}]}],
-        "generationConfig": {
-            "temperature": 0.3,
-            "maxOutputTokens": 2048,
-        },
-    }
-
-    resp = requests.post(api_url, headers=headers, json=payload, timeout=180)
-    resp.raise_for_status()
-    result = resp.json()
-
-    candidates = result.get("candidates", [])
-    if not candidates:
-        raise ValueError("No candidates in response")
-
-    text = candidates[0]["content"]["parts"][0]["text"]
-    usage = result.get("usageMetadata", {})
-    return text, usage.get("promptTokenCount", 0), usage.get("candidatesTokenCount", 0)
+import argparse
+from gemini_client import load_config, get_credentials, call_gemini
 
 
 def extract_json(text):
@@ -141,32 +85,8 @@ def main():
     parser.add_argument("--config-file", default=None)
     args = parser.parse_args()
 
-    # Resolve config
-    if args.config_file:
-        config_path = Path(args.config_file)
-    else:
-        config_path = Path(__file__).parent / "model-config.json"
-
-    if not config_path.exists():
-        print(f"ERROR: [review-chapter] Config not found: {config_path}", file=sys.stderr)
-        sys.exit(2)
-
-    config = load_config(config_path)
-
-    key_file = config.get("key_file", "") or os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")
-    if not key_file or not Path(key_file).exists():
-        print(f"ERROR: [review-chapter] Key file not found. Set GOOGLE_APPLICATION_CREDENTIALS or add key_file to config.", file=sys.stderr)
-        sys.exit(2)
-
-    # Authenticate
-    try:
-        creds = service_account.Credentials.from_service_account_file(
-            key_file, scopes=["https://www.googleapis.com/auth/cloud-platform"]
-        )
-        creds.refresh(AuthRequest())
-    except Exception as e:
-        print(f"ERROR: [review-chapter] Auth failed: {e}", file=sys.stderr)
-        sys.exit(2)
+    config = load_config(args.config_file)
+    creds = get_credentials(config)
 
     # Read review context
     ctx_path = Path(args.review_context_file)
@@ -176,9 +96,27 @@ def main():
 
     review_context = ctx_path.read_text(encoding="utf-8")
 
+    # System instruction for review
+    system_instruction = (
+        "你是一位严格的网文编辑。请严格按以下JSON格式输出，不要多余解释：\n"
+        '{"scores":{"character":1-10,"style":1-10,"continuity":1-10,"hook":1-10,"overall":1-10},'
+        '"issues":["问题1","问题2"]}\n'
+        "scores必须包含character/style/continuity/hook/overall五个维度，每个1-10分。"
+        "issues列出发现的问题。如果没有问题则为空数组[]。"
+    )
+
+    # Review-specific gen config
+    review_gen_config = {
+        "temperature": 0.3,
+        "maxOutputTokens": 2048,
+    }
+
     # Call Gemini
     try:
-        text, in_tok, out_tok = call_gemini_review(config, creds, review_context)
+        text, in_tok, out_tok = call_gemini(
+            config, creds, system_instruction, review_context,
+            gen_config=review_gen_config
+        )
         print(f"Review response: {in_tok} in / {out_tok} out tokens", file=sys.stderr)
     except Exception as e:
         print(f"ERROR: [review-chapter] API call failed: {e}", file=sys.stderr)

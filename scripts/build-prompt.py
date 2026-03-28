@@ -14,6 +14,8 @@ import re
 import sys
 from pathlib import Path
 
+from map_parser import extract_replacement_pairs
+
 
 def extract_style_system_prompt(style_path):
     """从 style.md 提取 '## 系统提示词' 到文件末尾的内容。"""
@@ -31,38 +33,11 @@ def extract_style_system_prompt(style_path):
 def extract_replacement_list(char_map_path, setting_map_path):
     """从 character-map.md 和 setting-map.md 提取替换清单。
     返回 (display_list, replace_dict)。
-    display_list: ["orig → new", ...] 用于 prompt 展示
-    replace_dict: {orig: new, ...} 用于原作文本预替换
+    委托给 map_parser.extract_replacement_pairs()。
     """
-    display = []
-    replace_dict = {}
-    for path in [char_map_path, setting_map_path]:
-        if not path.exists():
-            continue
-        for line in path.read_text(encoding="utf-8").splitlines():
-            if not line.startswith("|"):
-                continue
-            cells = [c.strip() for c in line.strip("|").split("|")]
-            if len(cells) < 2:
-                continue
-            if "---" in cells[0] or "原作" in cells[0] or "角色" in cells[0]:
-                continue
-            orig = cells[0].strip()
-            if orig and orig != "—":
-                new = cells[2].strip() if len(cells) > 2 and cells[2].strip() and cells[2].strip() != "—" else cells[1].strip()
-                if new and new != "—":
-                    display.append(f"{orig} → {new}")
-                    # 处理 "/" 分隔的多个原名
-                    for part in orig.split("/"):
-                        part = part.strip()
-                        if part and len(part) >= 2:  # 跳过单字
-                            replace_dict[part] = new.split("/")[0].strip()
-                    # 也提取别名列（第2列，如果表头含"别名"/"原作"）
-                    if len(cells) > 1:
-                        alias = cells[1].strip()
-                        if alias and alias != "—" and alias != new and len(alias) >= 2:
-                            replace_dict[alias] = new.split("/")[0].strip()
-    return display, replace_dict
+    char_text = char_map_path.read_text(encoding="utf-8") if char_map_path.exists() else ""
+    set_text = setting_map_path.read_text(encoding="utf-8") if setting_map_path.exists() else ""
+    return extract_replacement_pairs(char_text, set_text)
 
 
 def pre_replace_source_text(text, replace_dict):
@@ -243,7 +218,7 @@ def main():
     char_path = novel / "config" / "character-map.md"
     set_path = novel / "config" / "setting-map.md"
 
-    for p in [style_path, cmap_path, char_path]:
+    for p in [style_path, cmap_path, char_path, set_path]:
         if not p.exists():
             print(f"ERROR: Required file not found: {p}", file=sys.stderr)
             sys.exit(1)
@@ -262,6 +237,9 @@ def main():
 
     # 4. 原作内容（预替换原作名词）
     source_text = read_source_chapters(source, ch_info["source_chapters"])
+    if source_text == "(原作章节未找到)":
+        print(f"ERROR: Source chapters not found for '{ch_info['source_chapters']}' in {source}/chapters/", file=sys.stderr)
+        sys.exit(1)
     source_text = pre_replace_source_text(source_text, replace_dict)
 
     # 5. 前章正文

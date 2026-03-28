@@ -3,7 +3,7 @@
 write-chapter.py — 调用 Gemini 生成仿写章节。
 使用 Vertex AI 服务账号认证。
 
-接口：--prompt-file --output-file [--config-file]
+接口：--prompt-file --output-file [--config-file] [--target-words]
 Exit codes:
   0 = 成功
   1 = 生成失败（空/短/API错误，已重试3次）
@@ -11,15 +11,12 @@ Exit codes:
   3 = 认证失败（密钥文件不存在或无效）
 """
 import argparse
-import json
-import os
+import re
 import sys
 import time
 from pathlib import Path
 
-import requests
-from google.oauth2 import service_account
-from google.auth.transport.requests import Request as AuthRequest
+from gemini_client import load_config, get_credentials, call_gemini, SafetyBlockError
 
 
 def parse_prompt(prompt_text):
@@ -50,83 +47,22 @@ def parse_prompt(prompt_text):
     return system_part, user_part
 
 
-def load_config(config_file):
-    """加载 model-config.json"""
-    with open(config_file, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-
-def call_gemini(config, creds, system_prompt, user_prompt):
-    """调用 Gemini API，返回 (text, input_tokens, output_tokens)"""
-    if not creds.valid:
-        creds.refresh(AuthRequest())
-
-    model = config["model"]
-    project_id = config["project_id"]
-    region = config["region"]
-    api_url = (
-        f"https://{region}-aiplatform.googleapis.com/v1/projects/{project_id}"
-        f"/locations/{region}/publishers/google/models/{model}:generateContent"
-    )
-
-    headers = {
-        "Authorization": f"Bearer {creds.token}",
-        "Content-Type": "application/json",
-    }
-
-    temp = config.get("temperature", 1.0)
-    max_tokens = config.get("max_output_tokens", 16384)
-    gen_config = {
-        "temperature": float(temp) if temp and isinstance(temp, (int, float)) else 1.0,
-        "maxOutputTokens": int(max_tokens) if max_tokens and isinstance(max_tokens, (int, float)) else 16384,
-    }
-    # Flash 支持 thinkingBudget=0，Pro 不支持
-    if "flash" in model.lower():
-        gen_config["thinkingConfig"] = {"thinkingBudget": 0}
-
-    payload = {
-        "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
-        "generationConfig": gen_config,
-    }
-
-    if system_prompt:
-        payload["systemInstruction"] = {"parts": [{"text": system_prompt}]}
-
-    timeout_val = config.get("timeout", 180)
-    timeout = int(timeout_val) if timeout_val and isinstance(timeout_val, (int, float)) and timeout_val > 0 else 180
-    resp = requests.post(api_url, headers=headers, json=payload, timeout=timeout)
-    resp.raise_for_status()
-    result = resp.json()
-
-    # Check SAFETY
-    candidates = result.get("candidates", [])
-    if not candidates:
-        # Check if blocked by safety
-        block_reason = result.get("promptFeedback", {}).get("blockReason", "")
-        if block_reason:
-            print(f"ERROR: [write-chapter] SAFETY block: {block_reason}", file=sys.stderr)
-            sys.exit(2)
-        raise ValueError("No candidates in response")
-
-    candidate = candidates[0]
-    finish_reason = candidate.get("finishReason", "")
-    if finish_reason == "SAFETY":
-        print(f"ERROR: [write-chapter] SAFETY filter triggered", file=sys.stderr)
-        sys.exit(2)
-
-    text = candidate["content"]["parts"][0]["text"]
-    usage = result.get("usageMetadata", {})
-    return text, usage.get("promptTokenCount", 0), usage.get("candidatesTokenCount", 0)
-
-
-def validate_output(text):
-    """验证输出：非空、非过短、有效 UTF-8"""
+def validate_output(text, target_words=0):
+    """验证输出：非空、非过短、有效 UTF-8、字数达标"""
     if not text or not text.strip():
         return False, "empty response"
     # 去除空白后至少 200 字符（约 100 汉字）
     cleaned = text.strip()
     if len(cleaned) < 200:
         return False, f"too short ({len(cleaned)} chars)"
+    # 字数检查：去除空白和 Markdown 标记后的字符数
+    if target_words > 0:
+        content = re.sub(r"[#*\->\|`\[\]()!]", "", cleaned)
+        content = re.sub(r"\s+", "", content)
+        char_count = len(content)
+        min_chars = int(target_words * 0.9)
+        if char_count < min_chars:
+            return False, f"word count too low ({char_count} chars, need >= {min_chars})"
     return True, ""
 
 
@@ -139,36 +75,16 @@ def main():
         default=None,
         help="model-config.json path (default: scripts/model-config.json)",
     )
+    parser.add_argument(
+        "--target-words",
+        type=int,
+        default=0,
+        help="Target word count. If set, output must be >= 90%% of this value.",
+    )
     args = parser.parse_args()
 
-    # Resolve config file
-    if args.config_file:
-        config_path = Path(args.config_file)
-    else:
-        # Find config relative to this script
-        config_path = Path(__file__).parent / "model-config.json"
-
-    if not config_path.exists():
-        print(f"ERROR: [write-chapter] Config file not found: {config_path}", file=sys.stderr)
-        sys.exit(3)
-
-    config = load_config(config_path)
-
-    # Check key file: config key_file > GOOGLE_APPLICATION_CREDENTIALS env var
-    key_file = config.get("key_file", "") or os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")
-    if not key_file or not Path(key_file).exists():
-        print(f"ERROR: [write-chapter] Key file not found. Set GOOGLE_APPLICATION_CREDENTIALS or add key_file to config.", file=sys.stderr)
-        sys.exit(3)
-
-    # Authenticate
-    try:
-        creds = service_account.Credentials.from_service_account_file(
-            key_file, scopes=["https://www.googleapis.com/auth/cloud-platform"]
-        )
-        creds.refresh(AuthRequest())
-    except Exception as e:
-        print(f"ERROR: [write-chapter] Auth failed: {e}", file=sys.stderr)
-        sys.exit(3)
+    config = load_config(args.config_file)
+    creds = get_credentials(config)
 
     # Read prompt
     prompt_path = Path(args.prompt_file)
@@ -188,7 +104,7 @@ def main():
     for attempt in range(3):
         try:
             text, in_tok, out_tok = call_gemini(config, creds, system_prompt, user_prompt)
-            valid, reason = validate_output(text)
+            valid, reason = validate_output(text, target_words=args.target_words)
             if valid:
                 # Write output
                 output_path = Path(args.output_file)
@@ -203,6 +119,9 @@ def main():
                     f"ERROR: [write-chapter] Attempt {attempt+1}/3: {reason}",
                     file=sys.stderr,
                 )
+        except SafetyBlockError as e:
+            print(f"ERROR: [write-chapter] {e}", file=sys.stderr)
+            sys.exit(2)
         except SystemExit:
             raise  # Don't catch our own exit calls
         except Exception as e:
