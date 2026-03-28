@@ -61,8 +61,11 @@ def validate_output(text, target_words=0):
         content = re.sub(r"\s+", "", content)
         char_count = len(content)
         min_chars = int(target_words * 0.9)
+        max_chars = int(target_words * 1.3)
         if char_count < min_chars:
             return False, f"word count too low ({char_count} chars, need >= {min_chars})"
+        if char_count > max_chars:
+            return False, f"word count too high ({char_count} chars, need <= {max_chars})"
     return True, ""
 
 

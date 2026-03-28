@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-03-28T10:57:36.350531",
+  "last_updated": "2026-03-29T00:00:00",
   "preferences": [
     "prompt组装必须使用标准化模板文件（prompt-template.txt），禁止执行者手动压缩style.md系统提示词",
     "三层验证循环改为分级模式：前4章+每5章抽检=全三层，其余=write+verify两层",
@@ -8,7 +8,10 @@
     "Gemini 2.5 Pro 需要去掉 thinkingBudget=0（Pro不支持），write-chapter.py 应根据模型名自动判断",
     "Pro 的 API timeout 需要 300s（Flash 用 180s 够了），应从 model-config.json 读取或根据模型自动设置",
     "Pro 速率限制严格，批量写作需要间隔 5s+，build-prompt.py 或批处理脚本应内置间隔",
-    "temperature=1.0 + 正向引导 style.md 是当前最佳组合，不要回退到约束型风格"
+    "temperature=1.0 + 正向引导 style.md 是当前最佳组合，不要回退到约束型风格",
+    "setting-map 必须用2列格式（原作|新设定），不能有第3列说明——3列格式导致 map_parser 取错列",
+    "compression-map 中原创章（source=—）需特殊处理，build-prompt.py 跳过源文件检查",
+    "同名映射（原名=新名）会导致 verify 永远误报，应避免或改用不同名"
   ],
   "fixes": [
     "review-chapter.py JSON解析100%失败：需修复JSON提取逻辑适配Gemini 2.5 Flash实际输出格式",
@@ -17,7 +20,11 @@
     "event-ledger/recent-context更新断裂：考虑脚本化自动更新，或在终验阶段增加记忆系统重建步骤",
     "ch31→ch32 重复问题：相邻章共享同一原作章节（038前半/后半）时，build-prompt.py 需注入更强的防重叠指令，明确区分前后半的事件边界",
     "中后段摘要化：章节越往后 prompt 中 recent-context 越长，挤压了原作参考空间。考虑只注入最近3章摘要而非全部",
-    "model-config.json 应支持 timeout 和 thinkingConfig 字段，让 write-chapter.py 读取而非硬编码"
+    "model-config.json 应支持 timeout 和 thinkingConfig 字段，让 write-chapter.py 读取而非硬编码",
+    "v5 字数超标一倍（99K vs 50K）：write-chapter.py 只检查下限没检查上限，Gemini Pro 每章输出2500-4000字（目标1400-2000）。已修复：加上限130%检查",
+    "v5 setting-map 3列格式bug：map_parser 对3列表取第3列（说明）而非第2列（新设定）作为替换值。已修复：setting-map 统一2列格式",
+    "v5 build-prompt.py 不兼容原创章：source='—'时报错exit 1。已修复：检测到'—'/原创标记时跳过源文件检查",
+    "v5 同名映射误报：天灵塔→天灵塔导致verify永远报泄漏。已修复：改为不同名"
   ],
-  "custom_prompts": "v4 Pro 实战：32章完成，Codex评分6.3/10（vs Flash 5.1）。Pipeline成熟，核心改善来自模型升级+style.md正向引导+伏笔系统。下一步：选新原作验证泛化能力。"
+  "custom_prompts": "v5 泛化验证（bingxiang-xiulian，都市修真→都市异能）：32章完成，零泄漏通过率87.5%（28/32首次通过），4章需重试。核心问题是字数上限缺失导致总字数翻倍。Pipeline bug修复后需要第三本验证。"
 }

@@ -236,11 +236,16 @@ def main():
     replacements, replace_dict = extract_replacement_list(char_path, set_path)
 
     # 4. 原作内容（预替换原作名词）
-    source_text = read_source_chapters(source, ch_info["source_chapters"])
-    if source_text == "(原作章节未找到)":
-        print(f"ERROR: Source chapters not found for '{ch_info['source_chapters']}' in {source}/chapters/", file=sys.stderr)
-        sys.exit(1)
-    source_text = pre_replace_source_text(source_text, replace_dict)
+    source_chapters_str = ch_info["source_chapters"].strip()
+    if source_chapters_str in ("—", "—", "-", "原创", ""):
+        # 原创章节，无原作参考
+        source_text = "(本章为原创内容，无原作参考)"
+    else:
+        source_text = read_source_chapters(source, source_chapters_str)
+        if source_text == "(原作章节未找到)":
+            print(f"ERROR: Source chapters not found for '{source_chapters_str}' in {source}/chapters/", file=sys.stderr)
+            sys.exit(1)
+        source_text = pre_replace_source_text(source_text, replace_dict)
 
     # 5. 前章正文
     prev_chapter = read_prev_chapter(novel / "chapters", ch)

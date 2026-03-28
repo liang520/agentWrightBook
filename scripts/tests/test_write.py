@@ -86,8 +86,8 @@ def test_validate_output_none():
 
 
 def test_validate_output_target_words_pass():
-    """字数达标通过"""
-    text = "这是一段正常的章节内容。" * 200  # ~1200 chars
+    """字数达标通过（90%-130%范围内）"""
+    text = "这是一段正常的章节内容。" * 100  # ~1200 chars, within 90%-130% of 1000
     valid, reason = validate_output(text, target_words=1000)
     assert valid is True
     print("✓ test_validate_output_target_words_pass")
@@ -110,6 +110,15 @@ def test_validate_output_target_words_zero():
     print("✓ test_validate_output_target_words_zero")
 
 
+def test_validate_output_target_words_too_high():
+    """字数超标（>130%）不通过"""
+    text = "这是一段很长的章节内容，每个字都算数。" * 100  # ~1800 chars content
+    valid, reason = validate_output(text, target_words=1000)
+    assert valid is False
+    assert "too high" in reason
+    print("✓ test_validate_output_target_words_too_high")
+
+
 if __name__ == "__main__":
     tests = [
         test_parse_prompt_both_sections,
@@ -122,7 +131,9 @@ if __name__ == "__main__":
         test_validate_output_none,
         test_validate_output_target_words_pass,
         test_validate_output_target_words_fail,
+        test_validate_output_target_words_too_high,
         test_validate_output_target_words_zero,
+        test_validate_output_target_words_too_high,
     ]
     failed = 0
     for test in tests:
