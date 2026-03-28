@@ -102,11 +102,25 @@ def main():
         print("ERROR: [write-chapter] Empty user prompt", file=sys.stderr)
         sys.exit(1)
 
+    # 动态计算 maxOutputTokens：基于 target_words 限制 Gemini 输出长度
+    # 中文约 1.5 token/字，留 20% buffer 防截断
+    write_gen_config = None
+    if args.target_words > 0:
+        max_tokens = int(args.target_words * 2.5)  # 中文约2-2.5 token/字，留余量防截断
+        temp = config.get("temperature", 1.0)
+        write_gen_config = {
+            "temperature": float(temp) if temp and isinstance(temp, (int, float)) else 1.0,
+            "maxOutputTokens": max_tokens,
+        }
+        if "flash" in config.get("model", "").lower():
+            write_gen_config["thinkingConfig"] = {"thinkingBudget": 0}
+        print(f"maxOutputTokens capped at {max_tokens} (target_words={args.target_words})", file=sys.stderr)
+
     # Retry loop: 3 attempts with backoff
     backoff = [2, 8, 30]
     for attempt in range(3):
         try:
-            text, in_tok, out_tok = call_gemini(config, creds, system_prompt, user_prompt)
+            text, in_tok, out_tok = call_gemini(config, creds, system_prompt, user_prompt, gen_config=write_gen_config)
             valid, reason = validate_output(text, target_words=args.target_words)
             if valid:
                 # Write output
