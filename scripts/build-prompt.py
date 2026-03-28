@@ -105,12 +105,12 @@ def read_source_chapters(source_dir, source_str):
     for part in parts:
         part = part.strip()
         # 尝试多种格式
-        # 处理 "038前半" 等非纯数字格式
+        # 处理 "038前半" / "038后半" 等非纯数字格式
+        is_second_half = "后半" in part
         try:
             num = int(part)
             candidates = [f"{num:03d}.md"]
         except ValueError:
-            # 提取数字部分，如 "038前半" → 038
             import re as _re
             m = _re.match(r"(\d+)", part)
             candidates = [f"{int(m.group(1)):03d}.md"] if m else [f"{part}.md"]
@@ -118,8 +118,13 @@ def read_source_chapters(source_dir, source_str):
             path = Path(source_dir) / "chapters" / fmt
             if path.exists():
                 text = path.read_text(encoding="utf-8")
-                # 取前60行作为核心情节参考
-                lines = text.splitlines()[:60]
+                all_lines = text.splitlines()
+                if is_second_half:
+                    # 后半：取后60行
+                    lines = all_lines[-60:]
+                else:
+                    # 前半或完整：取前60行
+                    lines = all_lines[:60]
                 content.append("\n".join(lines))
                 break
     return "\n\n---\n\n".join(content) if content else "(原作章节未找到)"

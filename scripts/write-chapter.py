@@ -74,9 +74,11 @@ def call_gemini(config, creds, system_prompt, user_prompt):
         "Content-Type": "application/json",
     }
 
+    temp = config.get("temperature", 1.0)
+    max_tokens = config.get("max_output_tokens", 16384)
     gen_config = {
-        "temperature": config.get("temperature", 1.0),
-        "maxOutputTokens": config.get("max_output_tokens", 16384),
+        "temperature": float(temp) if temp and isinstance(temp, (int, float)) else 1.0,
+        "maxOutputTokens": int(max_tokens) if max_tokens and isinstance(max_tokens, (int, float)) else 16384,
     }
     # Flash 支持 thinkingBudget=0，Pro 不支持
     if "flash" in model.lower():
@@ -90,7 +92,8 @@ def call_gemini(config, creds, system_prompt, user_prompt):
     if system_prompt:
         payload["systemInstruction"] = {"parts": [{"text": system_prompt}]}
 
-    timeout = config.get("timeout", 180)
+    timeout_val = config.get("timeout", 180)
+    timeout = int(timeout_val) if timeout_val and isinstance(timeout_val, (int, float)) and timeout_val > 0 else 180
     resp = requests.post(api_url, headers=headers, json=payload, timeout=timeout)
     resp.raise_for_status()
     result = resp.json()
