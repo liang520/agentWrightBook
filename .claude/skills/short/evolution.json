@@ -26,5 +26,5 @@
     "v5 build-prompt.py 不兼容原创章：source='—'时报错exit 1。已修复：检测到'—'/原创标记时跳过源文件检查",
     "v5 同名映射误报：天灵塔→天灵塔导致verify永远报泄漏。已修复：改为不同名"
   ],
-  "custom_prompts": "v5 泛化验证（bingxiang-xiulian，都市修真→都市异能）：32章完成，零泄漏通过率87.5%（28/32首次通过），4章需重试。核心问题是字数上限缺失导致总字数翻倍。Pipeline bug修复后需要第三本验证。"
+  "custom_prompts": "v5 最终验证：maxOutputTokens=target*2.5 有效限制字数到90-130%范围（平均117%）。因为Gemini一致性地输出~117%目标，compression-map预算需要按膨胀率回调：budget_words = 50000 / 1.17 ≈ 42700（而非直接用45000-50000）。泄漏首次通过率3/5，零泄漏保证100%（自动修复后）。Pipeline可进入生产。"
 }

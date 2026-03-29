@@ -62,8 +62,9 @@ IF source meta.json.word_count <= 50000:
 **计算逻辑**：
 ```
 source_words = meta.json.word_count
-target_words = 50000
-budget_words = round(target_words * 0.90)       # 45000，预留 10% 安全余量（并行写作±10%容差会累积超标）
+hard_limit = 50000
+gemini_inflation = 1.17       # v5 实测：Gemini Pro 平均输出目标字数的 117%
+budget_words = round(hard_limit / gemini_inflation)   # ≈ 42735，考虑 Gemini 膨胀后刚好达到 50K
 
 IF budget_words / 1500 > 40:
     chapters = round(budget_words / 1500)
@@ -74,6 +75,11 @@ ELSE:
 
 avg_words_per_chapter = round(budget_words / chapters)
 ```
+
+**⚠️ 膨胀率校准（v5 实测数据）**：
+Gemini Pro + maxOutputTokens=target*2.5 时，实际输出平均为目标的 117%。
+因此 compression-map 的目标字数之和应为 ~42700 而非 45000-50000。
+写入 meta.json 时：target_words=50000, budget_words=42700。
 
 **字数控制原则**：
 - `target_words`（50000）是硬上限，成稿总字数绝不能超过
