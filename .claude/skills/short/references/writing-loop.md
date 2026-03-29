@@ -356,21 +356,40 @@ g. 门禁判定                                    ← 前置：f 完成
 |       执行 mkdir -p {novel}/tmp/
 |
 |    ② 组装 prompt + review-context
-|       ⚠️ 必须按 [references/prompt-template.md](references/prompt-template.md) 模板填充
-|       ⚠️ 禁止手动压缩或重写 style.md 系统提示词——原文加载
-|       write prompt → {novel}/tmp/ch-{NNN}-prompt.txt
-|         === SYSTEM === 部分：读取 config/style.md "## 系统提示词" 到文件末尾，原文粘贴
-|         === USER === 部分：按模板填充（字数第一优先、替换清单第二优先）
-|         前章注入：读取 chapters/{N-1}.md 末尾500字原文（不是手写摘要）
-|         弧间过渡：如果本章与前章属不同弧线，添加弧间过渡要求
+|       ⚠️ 必须调用 build-prompt.py 自动组装，禁止手动拼接 prompt
+|       ⚠️ 禁止手动压缩或重写 style.md 系统提示词——build-prompt.py 会原文加载
+|
+|       write prompt（调用 build-prompt.py）：
+|       "$REPO_ROOT/scripts/.venv/bin/python3" "$REPO_ROOT/scripts/build-prompt.py" \
+|         --novel-dir {novel} --chapter {N} --source-dir {source} \
+|         --output-file {novel}/tmp/ch-{NNN}-prompt.txt \
+|         [--leak-feedback "上次泄漏词列表"]    # 仅重试时传入
+|       build-prompt.py 自动完成：
+|         - 从 style.md 提取系统提示词（原文加载）
+|         - 从 compression-map.md 读取章节信息和目标字数
+|         - 从 character-map + setting-map 提取替换清单
+|         - 对原作文本做名词预替换（消除泄漏源头）
+|         - 读取前章末尾500字
+|         - 注入 memory-outline + recent-context
+|         - 读取 foreshadowing.md 注入伏笔指令
+|         - 对原创章（source="—"）自动跳过源文件
+|       ⚠️ setting-map 必须用2列格式（原作|新设定），3列格式会导致替换取错列
+|       ⚠️ 同名映射（原名=新名）会导致 verify 误报，必须改为不同名
+|
 |       review-context → {novel}/tmp/ch-{NNN}-review-context.txt
 |         内容：style + character-map + memory-outline + recent-3章摘要(每章≤150字) + 待审章节占位
 |
 |    ③ [WRITE — Layer 0] 调用 Gemini
 |       REPO_ROOT=$(git rev-parse --show-toplevel)
+|       TARGET_WORDS=$(从 compression-map.md 读取当前章目标字数)
 |       "$REPO_ROOT/scripts/.venv/bin/python3" "$REPO_ROOT/scripts/write-chapter.py" \
 |         --prompt-file {novel}/tmp/ch-{NNN}-prompt.txt \
-|         --output-file {novel}/tmp/ch-{NNN}-draft.txt
+|         --output-file {novel}/tmp/ch-{NNN}-draft.txt \
+|         --target-words $TARGET_WORDS
+|       ⚠️ --target-words 必须传入！它同时控制：
+|         (1) maxOutputTokens = target_words * 2.5（物理限制 Gemini 输出长度）
+|         (2) 输出验证：字数必须在 target 的 90%-130% 范围内
+|         不传则 Gemini 默认输出 2-3 倍目标字数（v5 实测）
 |       - exit 3 → 停止写作循环（认证失败）
 |       - exit 2 (SAFETY) → Claude Code 接管（见「Claude 接管流程」）
 |       - exit 1 → write_retries+1；若 < 3 → 回到 ③；否则 → Claude Code 接管
